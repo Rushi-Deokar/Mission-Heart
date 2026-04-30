@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.androidx.core.splashscreen)
     
+    
     // AI Symptom Checker Dependency
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
