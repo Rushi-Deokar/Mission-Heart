@@ -64,7 +64,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.6.2")
     implementation(libs.play.services.location)
     implementation(libs.androidx.core.splashscreen)
-    
+
     
     // AI Symptom Checker Dependency
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")

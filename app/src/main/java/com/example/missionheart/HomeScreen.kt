@@ -1,14 +1,12 @@
 package com.example.missionheart
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.location.Geocoder
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
@@ -16,8 +14,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,12 +21,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.filled.*
@@ -47,13 +42,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,17 +53,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
-import com.google.android.gms.location.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.*
 import com.example.missionheart.ui.theme.*
 
 // ── Data Models ──────────────────────────
 
 data class ServiceItem(val title: String, val subtitle: String, val icon: ImageVector, val route: String, val color: Color)
-data class DoctorItem(val name: String, val specialty: String, val rating: String, val isVerified: Boolean = true)
-data class BannerItem(val title: String, val subtitle: String, val buttonText: String, val icon: ImageVector, val gradientColors: List<Color>)
 
 data class HealthChallenge(
     val id: String,
@@ -82,20 +70,16 @@ data class HealthChallenge(
     val current: Int,
     val icon: ImageVector,
     val color: Color,
-    val daysLeft: Int,
     val points: Int,
-    val streak: Int = 0
+    val streak: Int = 0,
+    val unit: String = "units"
 )
-
-data class LeaderboardEntry(val rank: Int, val name: String, val steps: Int, val isCurrentUser: Boolean = false)
 
 // ── Theme Aliases ────────────────────────
 
 private val ThemeBg = AppBackground
 private val ThemeCardSurface = SurfaceWhite
-private val ThemeInputSurface = InputFieldBg
 private val ThemePrimary = BrandTeal
-private val ThemeSecondary = BrandBlue
 private val ThemeTextMain = TextPrimary
 private val ThemeTextDim = TextSecondary
 private val StatusGreenColor = SuccessGreen
@@ -106,55 +90,55 @@ fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
     val userName = "Rushi"
     
-    // --- SENSOR STATES ---
-    var totalStepsAtStart by rememberSaveable { mutableFloatStateOf(-1f) }
-    var currentSensorSteps by remember { mutableFloatStateOf(0f) }
+    // --- PERSISTENT TRACKING LOGIC ---
+    val sharedPrefs = remember { context.getSharedPreferences("HealthTrackerPrefs", Context.MODE_PRIVATE) }
+    val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
     
-    // Steps to display (Difference between current sensor value and baseline)
-    val displaySteps = if (totalStepsAtStart != -1f) {
-        (currentSensorSteps - totalStepsAtStart).toInt().coerceAtLeast(0)
-    } else {
-        0 
-    }
+    // Step Tracking
+    var dailySteps by remember { mutableIntStateOf(0) }
+    var stepTarget by remember { mutableIntStateOf(sharedPrefs.getInt("step_target", 8000)) }
 
-    // --- PERMISSION HANDLER ---
+    // Water Tracking
+    var dailyWaterIntake by remember { mutableIntStateOf(sharedPrefs.getInt("water_intake_$today", 0)) }
+    var waterTarget by remember { mutableIntStateOf(sharedPrefs.getInt("water_target", 3000)) }
+
     val activityPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (!isGranted) {
-            Toast.makeText(context, "Steps won't update without Physical Activity permission.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Steps won't update without permission.", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // --- SENSOR LISTENER ---
     DisposableEffect(Unit) {
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-        
+
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent?) {
-                event?.values?.firstOrNull()?.let { sensorValue ->
-                    Log.d("StepSensor", "Raw Value from Sensor: $sensorValue")
-                    currentSensorSteps = sensorValue
-                    
-                    // Capture the very first reading as our baseline if not already captured
-                    if (totalStepsAtStart == -1f) {
-                        totalStepsAtStart = sensorValue
+                event?.values?.firstOrNull()?.let { totalSteps ->
+                    val savedDate = sharedPrefs.getString("last_step_date", "")
+                    var baseline = sharedPrefs.getFloat("step_baseline", -1f)
+
+                    if (today != savedDate || baseline == -1f) {
+                        baseline = totalSteps
+                        sharedPrefs.edit()
+                            .putString("last_step_date", today)
+                            .putFloat("step_baseline", baseline)
+                            .apply()
                     }
+                    dailySteps = (totalSteps - baseline).toInt().coerceAtLeast(0)
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }
 
-        // Check and Request Permission
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED) {
-                sensorManager.registerListener(listener, stepSensor, SensorManager.SENSOR_DELAY_UI)
-            } else {
-                activityPermissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
-            }
-        } else {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Manifest.permission.ACTIVITY_RECOGNITION else null
+        
+        if (permission == null || ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
             sensorManager.registerListener(listener, stepSensor, SensorManager.SENSOR_DELAY_UI)
+        } else {
+            activityPermissionLauncher.launch(permission)
         }
 
         onDispose {
@@ -162,39 +146,63 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
-    // --- OTHER STATES ---
-    var location by rememberSaveable { mutableStateOf("Detecting...") }
+    // --- UI STATES ---
+    var location by rememberSaveable { mutableStateOf("Jalgaon 425002") }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var showDailyWalkerSheet by remember { mutableStateOf(false) }
-    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+    var showDetailSheet by remember { mutableStateOf<String?>(null) } // "walk" or "water"
 
-    // Health Tips
-    val healthTips = remember {
+    // Challenges
+    val allChallenges = remember(dailySteps, stepTarget, dailyWaterIntake, waterTarget) {
         listOf(
-            "Drink at least 3 liters of water today for better skin.",
-            "Take a 10-minute walk after your lunch to aid digestion.",
-            "Practice deep breathing for 5 minutes to reduce stress.",
-            "Try to get at least 7-8 hours of sound sleep tonight."
+            HealthChallenge(
+                id = "walk_challenge",
+                title = "Daily Walker",
+                description = "Walk $stepTarget steps today",
+                progress = ((dailySteps.toFloat() / stepTarget) * 100).toInt().coerceIn(0, 100),
+                target = stepTarget,
+                current = dailySteps,
+                icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
+                color = ActionOrange,
+                points = 50,
+                streak = 7,
+                unit = "steps"
+            ),
+            HealthChallenge(
+                id = "hydration",
+                title = "Hydration Hero",
+                description = "Drink $waterTarget ml water",
+                progress = ((dailyWaterIntake.toFloat() / waterTarget) * 100).toInt().coerceIn(0, 100),
+                target = waterTarget,
+                current = dailyWaterIntake,
+                icon = Icons.Outlined.WaterDrop,
+                color = BrandBlue,
+                points = 100,
+                streak = 3,
+                unit = "ml"
+            ),
+            HealthChallenge(
+                id = "medicine_streak",
+                title = "Medicine Master",
+                description = "30 day medicine streak",
+                progress = 80,
+                target = 30,
+                current = 24,
+                icon = Icons.Rounded.Alarm,
+                color = SuccessGreen,
+                points = 200,
+                streak = 24,
+                unit = "days"
+            )
         )
     }
-    val currentTip = remember { healthTips.random() }
 
-    // Challenges (Using live steps)
-    val dailyWalkerChallenge = remember(displaySteps) {
-        HealthChallenge(
-            id = "walk_challenge",
-            title = "Daily Walker",
-            description = "Walk 8,000 steps today",
-            progress = ((displaySteps / 8000f) * 100).toInt().coerceIn(0, 100),
-            target = 8000,
-            current = displaySteps,
-            icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
-            color = ActionOrange,
-            daysLeft = 1,
-            points = 50,
-            streak = 7
-        )
-    }
+    val healthTips = listOf(
+        "Drink 3L of water for glowing skin.",
+        "A 10-minute walk aids digestion.",
+        "Deep breathing for 5 minutes reduces stress.",
+        "7-8 hours of sleep is essential for recovery."
+    )
+    val currentTip = remember { healthTips.random() }
 
     Scaffold(
         containerColor = ThemeBg,
@@ -206,62 +214,81 @@ fun HomeScreen(navController: NavController) {
             }
         }
     ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            
-            HomeTopBar(
-                userName = userName,
-                location = location,
-                onLocationClick = { /* Handle Location Logic */ },
-                onProfileClick = { navController.navigate(NavGraph.PROFILE_ROUTE) },
-                navController = navController,
-                searchQuery = searchQuery,
-                onSearchChange = { searchQuery = it },
-                onSearchClear = { searchQuery = "" },
-                onCartClick = { navController.navigate(NavGraph.CART_ROUTE) }
-            )
+        Column(Modifier.fillMaxSize().padding(paddingValues)) {
+            HomeTopBar(userName, location, {}, { navController.navigate(NavGraph.PROFILE_ROUTE) }, navController, searchQuery, {searchQuery = it}, {searchQuery = ""}, { navController.navigate(NavGraph.CART_ROUTE) })
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp))
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize()) {
                 item { DailyHealthTip(currentTip) }
                 item { MedicineReminderCard { navController.navigate(NavGraph.MEDICINE_REMINDER_ROUTE) } }
                 item { AISymptomCheckerCard { navController.navigate(NavGraph.SYMPTOM_CHECKER_ROUTE) } }
 
-                if (dailyWalkerChallenge.streak > 0) {
-                    item { StreakBanner(dailyWalkerChallenge.streak) }
+                val walkChallenge = allChallenges.find { it.id == "walk_challenge" }
+                if (walkChallenge != null && walkChallenge.streak > 0) {
+                    item { StreakBanner(walkChallenge.streak) }
                 }
 
-                item { Spacer(modifier = Modifier.height(16.dp)) }
+                item { Spacer(Modifier.height(16.dp)) }
 
                 item {
-                    ChallengesSection(listOf(dailyWalkerChallenge)) { 
-                        showDailyWalkerSheet = true 
+                    ChallengesSection(allChallenges) { challenge ->
+                        if (challenge.id == "walk_challenge") showDetailSheet = "walk"
+                        else if (challenge.id == "hydration") showDetailSheet = "water"
+                        else Toast.makeText(context, "Opening ${challenge.title}...", Toast.LENGTH_SHORT).show()
                     }
                 }
 
                 item {
-                    SectionHeader("Services")
+                    SectionHeader("Our Services")
                     Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(
-                            ServiceItem("Pharmacy", "Meds", Icons.Default.LocalPharmacy, NavGraph.PHARMACY_ROUTE, StatusGreenColor),
-                            ServiceItem("Labs", "Tests", Icons.Default.Science, NavGraph.LAB_TESTS_ROUTE, Color(0xFF7E57C2)),
-                            ServiceItem("Doctors", "Consult", Icons.Default.MedicalServices, NavGraph.DOCTORS_ROUTE, BrandBlue)
-                        ).forEach { ServiceCard(it, navController, Modifier.weight(1f)) }
+                        ServiceCard(ServiceItem("Pharmacy", "Meds", Icons.Default.LocalPharmacy, NavGraph.PHARMACY_ROUTE, StatusGreenColor), navController, Modifier.weight(1f))
+                        ServiceCard(ServiceItem("Labs", "Tests", Icons.Default.Science, NavGraph.LAB_TESTS_ROUTE, Color(0xFF7E57C2)), navController, Modifier.weight(1f))
+                        ServiceCard(ServiceItem("Doctors", "Consult", Icons.Default.MedicalServices, NavGraph.DOCTORS_ROUTE, BrandBlue), navController, Modifier.weight(1f))
                     }
                 }
                 
-                item { Spacer(modifier = Modifier.height(100.dp)) }
+                item { TrustFooter() }
+                item { Spacer(Modifier.height(100.dp)) }
             }
         }
     }
 
-    if (showDailyWalkerSheet) {
+    if (showDetailSheet != null) {
         ModalBottomSheet(
-            onDismissRequest = { showDailyWalkerSheet = false },
+            onDismissRequest = { showDetailSheet = null },
             containerColor = ThemeBg,
             contentColor = ThemeTextMain
         ) {
-            DailyWalkerDetailScreen(dailyWalkerChallenge, displaySteps.toFloat()) { showDailyWalkerSheet = false }
+            when (showDetailSheet) {
+                "walk" -> {
+                    val challenge = allChallenges.find { it.id == "walk_challenge" }!!
+                    DailyWalkerDetailScreen(
+                        challenge = challenge,
+                        onTargetChange = { newTarget ->
+                            stepTarget = newTarget
+                            sharedPrefs.edit().putInt("step_target", newTarget).apply()
+                        },
+                        onDismiss = { showDetailSheet = null }
+                    )
+                }
+                "water" -> {
+                    val challenge = allChallenges.find { it.id == "hydration" }!!
+                    HydrationDetailScreen(
+                        challenge = challenge,
+                        onIntakeChange = { added ->
+                            val newIntake = dailyWaterIntake + added
+                            dailyWaterIntake = newIntake
+                            sharedPrefs.edit().putInt("water_intake_$today", newIntake).apply()
+                        },
+                        onTargetChange = { newTarget ->
+                            waterTarget = newTarget
+                            sharedPrefs.edit().putInt("water_target", newTarget).apply()
+                        },
+                        onDismiss = { showDetailSheet = null }
+                    )
+                }
+            }
         }
     }
 }
@@ -269,9 +296,171 @@ fun HomeScreen(navController: NavController) {
 // ── Components ───────────────────────────
 
 @Composable
+fun HydrationDetailScreen(
+    challenge: HealthChallenge,
+    onIntakeChange: (Int) -> Unit,
+    onTargetChange: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .padding(bottom = 32.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Hydration Tracker", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = ThemeTextMain)
+        Spacer(Modifier.height(32.dp))
+        
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(220.dp)) {
+            CircularProgressIndicator(
+                progress = { challenge.current.toFloat() / challenge.target },
+                modifier = Modifier.fillMaxSize(),
+                strokeWidth = 16.dp,
+                color = challenge.color,
+                strokeCap = StrokeCap.Round
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(challenge.current.toString(), fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, color = ThemeTextMain)
+                Text("ml drank", fontSize = 14.sp, color = ThemeTextDim)
+            }
+        }
+        
+        Spacer(Modifier.height(32.dp))
+        
+        Text("Quick Add", fontWeight = FontWeight.Bold, color = ThemeTextMain, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(250, 500, 750).forEach { amount ->
+                Button(
+                    onClick = { onIntakeChange(amount) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue.copy(alpha = 0.1f), contentColor = BrandBlue),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("+$amount")
+                }
+            }
+        }
+        
+        Spacer(Modifier.height(32.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = ThemeCardSurface),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Customize Daily Goal", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = ThemeTextMain)
+                Spacer(Modifier.height(12.dp))
+                val targets = listOf(2000, 2500, 3000, 3500, 4000)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(targets) { target ->
+                        val isSelected = target == challenge.target
+                        Surface(
+                            onClick = { onTargetChange(target) },
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (isSelected) BrandBlue else ThemeBg,
+                            border = BorderStroke(1.dp, if (isSelected) BrandBlue else ThemeTextDim.copy(alpha = 0.3f))
+                        ) {
+                            Text(
+                                "${target/1000f}L",
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                color = if (isSelected) Color.White else ThemeTextMain,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(32.dp))
+        Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Close") }
+    }
+}
+
+@Composable
+fun GoalAdjustmentCard(currentGoal: Int, onTargetChange: (Int) -> Unit) {
+    val goals = listOf(5000, 8000, 10000, 12000, 15000)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = ThemeCardSurface),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Adjust Your Daily Goal", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = ThemeTextMain)
+            Spacer(modifier = Modifier.height(12.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(goals) { goal ->
+                    val isSelected = goal == currentGoal
+                    Surface(
+                        onClick = { onTargetChange(goal) },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) BrandBlue else ThemeBg,
+                        border = BorderStroke(1.dp, if (isSelected) BrandBlue else ThemeTextDim.copy(alpha = 0.3f))
+                    ) {
+                        Text(
+                            "${goal / 1000}K steps",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            color = if (isSelected) Color.White else ThemeTextMain,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeTopBar(userName: String, location: String, onLoc: () -> Unit, onProf: () -> Unit, nav: NavController, query: String, onQ: (String) -> Unit, onClear: () -> Unit, onCart: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column {
+                Text("Namaste,", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
+                Text(userName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Row(Modifier.padding(top = 4.dp).clickable { onLoc() }, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(location, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+            }
+            IconButton(onClick = onProf) { Icon(Icons.Default.AccountCircle, null, tint = Color.White, modifier = Modifier.size(36.dp)) }
+        }
+        Spacer(Modifier.height(16.dp))
+        SearchBar(query, onQ, onClear, onCart)
+    }
+}
+
+@Composable
+fun SearchBar(value: String, onValueChange: (String) -> Unit, onClear: () -> Unit, onCartClick: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextField(
+            value = value, onValueChange = onValueChange,
+            placeholder = { Text("Search meds, doctors...", color = ThemeTextDim) },
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = ThemePrimary) },
+            trailingIcon = { if (value.isNotEmpty()) IconButton(onClick = onClear) { Icon(Icons.Default.Close, null) } },
+            modifier = Modifier.weight(1f).height(52.dp).shadow(4.dp, RoundedCornerShape(16.dp)),
+            shape = RoundedCornerShape(16.dp),
+            colors = TextFieldDefaults.colors(focusedContainerColor = ThemeCardSurface, unfocusedContainerColor = ThemeCardSurface, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
+        )
+        Spacer(Modifier.width(12.dp))
+        IconButton(onClick = onCartClick, modifier = Modifier.size(52.dp).background(ThemeCardSurface, RoundedCornerShape(16.dp))) {
+            Icon(Icons.Default.ShoppingCart, null, tint = ThemeTextMain)
+        }
+    }
+}
+
+@Composable
 fun DailyHealthTip(tip: String) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = ThemePrimary.copy(alpha = 0.05f)),
         border = BorderStroke(1.dp, ThemePrimary.copy(alpha = 0.2f))
@@ -288,66 +477,162 @@ fun DailyHealthTip(tip: String) {
 }
 
 @Composable
-fun ChallengesSection(challenges: List<HealthChallenge>, onChallengeClick: (HealthChallenge) -> Unit) {
-    Column {
-        SectionHeader("Active Challenges")
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(challenges) { challenge ->
-                MiniChallengeCard(challenge) { onChallengeClick(challenge) }
+fun AISymptomCheckerCard(onClick: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = BrandTeal.copy(alpha = 0.1f)),
+        border = BorderStroke(1.dp, BrandTeal.copy(alpha = 0.3f))
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(BrandTeal), Alignment.Center) {
+                Icon(Icons.Rounded.Verified, null, tint = Color.White)
             }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("AI Symptom Checker", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = ThemeTextMain)
+                Text("Feeling unwell? Check symptoms instantly.", fontSize = 12.sp, color = ThemeTextDim)
+            }
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = BrandTeal)
         }
     }
 }
 
 @Composable
-fun MiniChallengeCard(challenge: HealthChallenge, onClick: () -> Unit) {
+fun MedicineReminderCard(onClick: () -> Unit) {
     Card(
-        modifier = Modifier.width(160.dp).clickable { onClick() },
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = ThemeCardSurface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Icon(challenge.icon, null, tint = challenge.color, modifier = Modifier.size(32.dp))
-            Spacer(Modifier.height(8.dp))
-            Text(challenge.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = ThemeTextMain)
-            Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { challenge.progress / 100f },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                color = challenge.color,
-                trackColor = challenge.color.copy(alpha = 0.1f)
-            )
-            Spacer(Modifier.height(8.dp))
-            Text("${challenge.current}/${challenge.target}", fontSize = 11.sp, color = challenge.color, fontWeight = FontWeight.Bold)
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(ThemePrimary.copy(alpha = 0.1f)), Alignment.Center) {
+                Icon(Icons.Rounded.Alarm, null, tint = ThemePrimary)
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("My Medicines", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = ThemeTextMain)
+                Text("Check your schedule & refills", fontSize = 12.sp, color = ThemeTextDim)
+            }
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = ThemeTextDim)
         }
     }
 }
 
 @Composable
-fun DailyWalkerDetailScreen(challenge: HealthChallenge, actualSteps: Float, onDismiss: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(24.dp).padding(bottom = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Activity Detail", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(24.dp))
-        
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
+fun StreakBanner(streak: Int) {
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        color = ActionOrange.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, ActionOrange.copy(alpha = 0.3f))
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val scale by rememberInfiniteTransition().animateFloat(1f, 1.2f, infiniteRepeatable(tween(600), RepeatMode.Reverse))
+            Text("🔥", fontSize = 24.sp, modifier = Modifier.scale(scale))
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("$streak Day Streak!", fontWeight = FontWeight.Bold, color = ActionOrange)
+                Text("Keep going! Don't break the chain", fontSize = 12.sp, color = ThemeTextDim)
+            }
+        }
+    }
+}
+
+@Composable
+fun ChallengesSection(challenges: List<HealthChallenge>, onChallengeClick: (HealthChallenge) -> Unit) {
+    Column {
+        SectionHeader("Active Challenges")
+        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(challenges) { challenge ->
+                Card(
+                    Modifier.width(180.dp).clickable { onChallengeClick(challenge) },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = ThemeCardSurface),
+                    elevation = CardDefaults.cardElevation(2.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Icon(challenge.icon, null, tint = challenge.color, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text(challenge.title, fontWeight = FontWeight.Bold, color = ThemeTextMain)
+                        Text(challenge.description, fontSize = 10.sp, color = ThemeTextDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            progress = { challenge.progress / 100f },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                            color = challenge.color,
+                            trackColor = challenge.color.copy(alpha = 0.1f)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text("${challenge.current} / ${challenge.target} ${challenge.unit}", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = challenge.color)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DailyWalkerDetailScreen(challenge: HealthChallenge, onTargetChange: (Int) -> Unit, onDismiss: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .padding(bottom = 32.dp)
+            .verticalScroll(rememberScrollState()), 
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Activity Progress", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = ThemeTextMain)
+        Spacer(Modifier.height(32.dp))
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(220.dp)) {
             CircularProgressIndicator(
-                progress = { actualSteps / challenge.target },
+                progress = { challenge.current.toFloat() / challenge.target },
                 modifier = Modifier.fillMaxSize(),
-                strokeWidth = 12.dp,
+                strokeWidth = 16.dp,
                 color = challenge.color,
                 strokeCap = StrokeCap.Round
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(actualSteps.toInt().toString(), fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, color = challenge.color)
-                Text("Steps Today", fontSize = 14.sp, color = ThemeTextDim)
+                Text(challenge.current.toString(), fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, color = ThemeTextMain)
+                Text("Steps today", fontSize = 14.sp, color = ThemeTextDim)
             }
         }
         
+        Spacer(Modifier.height(40.dp))
+        
+        GoalAdjustmentCard(currentGoal = challenge.target, onTargetChange = onTargetChange)
+        
         Spacer(Modifier.height(32.dp))
-        Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+        Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Close") }
     }
 }
 
-// Other UI components (HomeTopBar, SearchBar, etc.) remain as previously defined.
-// ... (omitted for brevity but ensuring the app remains consistent)
+@Composable
+fun ServiceCard(item: ServiceItem, nav: NavController, modifier: Modifier = Modifier) {
+    Card(modifier.clickable { nav.navigate(item.route) }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = ThemeCardSurface)) {
+        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(item.color.copy(alpha = 0.1f)), Alignment.Center) {
+                Icon(item.icon, null, tint = item.color, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(item.title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = ThemeTextMain)
+        }
+    }
+}
+
+@Composable
+fun SectionHeader(title: String) {
+    Text(title, Modifier.padding(16.dp), fontWeight = FontWeight.Bold, color = ThemeTextMain, fontSize = 18.sp)
+}
+
+@Composable
+fun TrustFooter() {
+    Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Security, null, tint = SuccessGreen, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("100% Secure & HIPAA Compliant", color = ThemeTextDim, fontSize = 12.sp)
+        }
+    }
+}
