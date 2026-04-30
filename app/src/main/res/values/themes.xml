@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.MissionHeart" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <!-- Set the splash screen background, animated icon, and destination theme. -->
+        <item name="windowSplashScreenBackground">#101216</item>
+
+        <!-- Use windowSplashScreenAnimatedIcon to add either a drawable or an
+             animated drawable. One of these is required. -->
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+
+        <!-- Set the theme of the Activity that follows your splash screen. -->
+        <!-- Required. -->
+        <item name="postSplashScreenTheme">@style/Theme.MissionHeart</item>
+    </style>
+</resources>
