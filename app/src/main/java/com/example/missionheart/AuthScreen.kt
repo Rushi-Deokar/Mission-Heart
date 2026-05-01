@@ -2,6 +2,8 @@ package com.example.missionheart
 
 import android.util.Patterns
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -28,8 +30,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.missionheart.ui.theme.*
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
+import com.example.missionheart.R
+import kotlinx.coroutines.launch
 
 // Helper Functions for Validation
 fun isValidEmail(email: String): Boolean {
@@ -54,6 +62,28 @@ fun LoginScreen(navController: NavController) {
     var passwordError by remember { mutableStateOf<String?>(null) }
     var genericError by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+
+    // Google Sign-In Launcher Setup
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val credential = GoogleAuthProvider.getCredential(account?.idToken, null)
+            isLoading = true
+            auth.signInWithCredential(credential)
+                .addOnCompleteListener { authTask ->
+                    isLoading = false
+                    if (authTask.isSuccessful) {
+                        Toast.makeText(context, "Welcome Back!", Toast.LENGTH_SHORT).show()
+                        navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
+                    } else {
+                        genericError = authTask.exception?.message ?: "Google Sign-In Failed"
+                    }
+                }
+        } catch (e: ApiException) {
+            genericError = "Google sign in failed: ${e.message}"
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
@@ -80,7 +110,7 @@ fun LoginScreen(navController: NavController) {
             // Email Field
             OutlinedTextField(
                 value = email,
-                onValueChange = { newEmail ->  // Fixed: Explicitly named the parameter
+                onValueChange = { newEmail ->
                     email = newEmail
                     emailError = null
                     genericError = null
@@ -102,7 +132,7 @@ fun LoginScreen(navController: NavController) {
             // Password Field
             OutlinedTextField(
                 value = password,
-                onValueChange = { newPassword -> // Fixed: Explicitly named the parameter
+                onValueChange = { newPassword ->
                     password = newPassword
                     passwordError = null
                     genericError = null
@@ -143,7 +173,7 @@ fun LoginScreen(navController: NavController) {
                     } else {
                         auth.sendPasswordResetEmail(email.trim()).addOnCompleteListener { task ->
                             if (task.isSuccessful) {
-                                Toast.makeText(context, "Reset link sent to your email", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Reset link sent", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(context, "Error: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
                             }
@@ -156,7 +186,7 @@ fun LoginScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Login Button
+            // Normal Login Button
             Button(
                 onClick = {
                     keyboardController?.hide()
@@ -194,10 +224,37 @@ fun LoginScreen(navController: NavController) {
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- GOOGLE SIGN IN BUTTON ---
+            OutlinedButton(
+                onClick = {
+                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                        .requestIdToken(context.getString(R.string.default_web_client_id))
+                        .requestEmail()
+                        .build()
+                    val googleSignInClient = GoogleSignIn.getClient(context, gso)
+                    launcher.launch(googleSignInClient.signInIntent)
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = "Google Icon",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Continue with Google", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            }
+            // --- END GOOGLE SIGN IN BUTTON ---
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Don't have an account?", color = Color.Gray, fontSize = 14.sp)
+                // Assuming "signup" was your original route name, or use NavGraph.SIGNUP_ROUTE if that's defined in your NavGraph
                 TextButton(onClick = { navController.navigate("signup") }) {
                     Text("Sign Up", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
@@ -211,6 +268,7 @@ fun SignupScreen(navController: NavController) {
     val context = LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val coroutineScope = rememberCoroutineScope()
 
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -245,7 +303,7 @@ fun SignupScreen(navController: NavController) {
 
             OutlinedTextField(
                 value = name,
-                onValueChange = { newName -> // Fixed
+                onValueChange = { newName ->
                     name = newName
                     nameError = null
                 },
@@ -263,7 +321,7 @@ fun SignupScreen(navController: NavController) {
 
             OutlinedTextField(
                 value = email,
-                onValueChange = { newEmail -> // Fixed
+                onValueChange = { newEmail ->
                     email = newEmail
                     emailError = null
                 },
@@ -281,7 +339,7 @@ fun SignupScreen(navController: NavController) {
 
             OutlinedTextField(
                 value = password,
-                onValueChange = { newPassword -> // Fixed
+                onValueChange = { newPassword ->
                     password = newPassword
                     passwordError = null
                 },
@@ -336,7 +394,6 @@ fun SignupScreen(navController: NavController) {
                                         if (profileTask.isSuccessful) {
                                             navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
                                         } else {
-                                            Toast.makeText(context, "Error updating profile", Toast.LENGTH_SHORT).show()
                                             navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
                                         }
                                     }

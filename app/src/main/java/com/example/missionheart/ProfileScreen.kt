@@ -13,20 +13,34 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.missionheart.ui.theme.*
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(navController: NavController) {
+    // --- FIREBASE SETUP ---
+    val context = LocalContext.current
+    val auth = remember { FirebaseAuth.getInstance() }
+    val currentUser = auth.currentUser
+
+    // Fetching Live Data (Fallback set to Rushikesh Deokar if name is empty)
+    val userName = currentUser?.displayName ?: "Rushikesh Deokar"
+    val userEmail = currentUser?.email ?: "No email provided"
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -48,12 +62,12 @@ fun ProfileScreen(navController: NavController) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // 1. User Info Header
+            // 1. User Info Header (Dynamic Data Here)
             item {
                 UserProfileHeader(
-                    name = "Rushi Patil",
-                    phone = "+91 98765 43210",
-                    onEditClick = { /* Navigate to Edit Profile */ }
+                    name = userName,
+                    details = userEmail, // Changed phone to email since Firebase primarily uses email
+                    onEditClick = { navController.navigate("edit_profile") }
                 )
             }
 
@@ -77,12 +91,24 @@ fun ProfileScreen(navController: NavController) {
                 }
             }
 
-            // 4. App Info & Logout
+            // 4. App Info & Logout (Real Logout Logic Here)
             item {
                 ProfileSectionTitle("Support")
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ProfileOptionItem(icon = Icons.Default.Help, title = "Help & Support", subtitle = "FAQs & Customer Care", onClick = {})
-                    LogoutButton(onClick = { /* Handle Logout */ })
+                    LogoutButton(onClick = {
+                        // 1. Firebase Logout
+                        auth.signOut()
+
+                        // 2. Google Logout
+                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
+                        GoogleSignIn.getClient(context, gso).signOut().addOnCompleteListener {
+                            // 3. Navigate to Login (Assuming NavGraph.AUTH_ROUTE or "login")
+                            navController.navigate("login") {
+                                popUpTo(0) // Clear backstack so user can't press back to enter app
+                            }
+                        }
+                    })
                 }
             }
 
@@ -97,7 +123,7 @@ fun ProfileScreen(navController: NavController) {
 }
 
 @Composable
-fun UserProfileHeader(name: String, phone: String, onEditClick: () -> Unit) {
+fun UserProfileHeader(name: String, details: String, onEditClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -131,7 +157,7 @@ fun UserProfileHeader(name: String, phone: String, onEditClick: () -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(phone, fontSize = 14.sp, color = TextSecondary)
+            Text(details, fontSize = 14.sp, color = TextSecondary)
         }
     }
 }

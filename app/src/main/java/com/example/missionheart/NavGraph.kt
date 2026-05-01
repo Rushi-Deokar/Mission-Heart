@@ -35,6 +35,7 @@ object NavGraph {
     const val NOTIFICATIONS_ROUTE = "notifications"
     const val CART_ROUTE = "cart"
     const val PROFILE_ROUTE = "profile_screen"
+    const val EDIT_PROFILE_ROUTE = "edit_profile" // ✅ Naya Route
     const val SYMPTOM_CHECKER_ROUTE = "symptom_checker"
     const val SYMPTOM_RESULT_ROUTE = "symptom_analysis_result/{symptoms}"
     const val MEDICINE_REMINDER_ROUTE = "medicine_reminder"
@@ -87,8 +88,14 @@ fun AppNavGraph(
         composable(NavGraph.NOTIFICATIONS_ROUTE) { NotificationScreen(navController) }
         composable(NavGraph.CART_ROUTE) { CartScreen(navController, cartViewModel) }
         composable(NavGraph.PROFILE_ROUTE) { ProfileScreen(navController) }
+
+        // ✅ Edit Profile Screen Entry
+        composable(NavGraph.EDIT_PROFILE_ROUTE) {
+            EditProfileScreen(navController)
+        }
+
         composable(NavGraph.SYMPTOM_CHECKER_ROUTE) { SymptomCheckerScreen(navController) }
-        
+
         composable(
             route = NavGraph.SYMPTOM_RESULT_ROUTE,
             arguments = listOf(navArgument("symptoms") { type = NavType.StringType })
@@ -96,7 +103,7 @@ fun AppNavGraph(
             val symptoms = backStackEntry.arguments?.getString("symptoms")?.split(",") ?: emptyList()
             SymptomAnalysisResultScreen(navController, symptoms)
         }
-        
+
         composable(NavGraph.MEDICINE_REMINDER_ROUTE) { MedicineReminderScreen(navController) }
         composable(NavGraph.CATEGORY_CANCER_ROUTE) { CategoryCancerScreen(navController) }
         composable(NavGraph.CATEGORY_HEART_ROUTE) { CategoryHeartScreen(navController) }
