@@ -1,6 +1,6 @@
 [versions]
-agp = "8.3.2"
-kotlin = "1.9.22"
+agp = "8.6.0"
+kotlin = "2.0.0"
 coreKtx = "1.12.0"
 lifecycleRuntimeKtx = "2.7.0"
 activityCompose = "1.8.2"
@@ -13,6 +13,7 @@ espressoCore = "3.5.1"
 navigationCompose = "2.7.7"
 playServicesLocation = "21.0.1"
 coreSplashscreen = "1.0.1"
+foundation = "1.11.0"
 
 [libraries]
 # Core & Lifecycle
@@ -49,6 +50,7 @@ play-services-location = { group = "com.google.android.gms", name = "play-servic
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

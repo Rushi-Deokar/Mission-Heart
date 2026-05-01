@@ -21,6 +21,7 @@ object NavGraph {
     // --- AUTHENTICATION ROUTES ---
     const val LOGIN_ROUTE = "login"
     const val SIGNUP_ROUTE = "signup"
+    const val ONBOARDING_ROUTE = "onboarding" // ✅ Naya Route
 
     // --- MAIN BOTTOM NAVIGATION ROUTES ---
     const val HOME_ROUTE = "home"
@@ -35,7 +36,7 @@ object NavGraph {
     const val NOTIFICATIONS_ROUTE = "notifications"
     const val CART_ROUTE = "cart"
     const val PROFILE_ROUTE = "profile_screen"
-    const val EDIT_PROFILE_ROUTE = "edit_profile" // ✅ Naya Route
+    const val EDIT_PROFILE_ROUTE = "edit_profile" 
     const val SYMPTOM_CHECKER_ROUTE = "symptom_checker"
     const val SYMPTOM_RESULT_ROUTE = "symptom_analysis_result/{symptoms}"
     const val MEDICINE_REMINDER_ROUTE = "medicine_reminder"
@@ -78,6 +79,12 @@ fun AppNavGraph(
     ) {
         composable(NavGraph.LOGIN_ROUTE) { LoginScreen(navController) }
         composable(NavGraph.SIGNUP_ROUTE) { SignupScreen(navController) }
+        
+        // ✅ Onboarding Screen Entry
+        composable(NavGraph.ONBOARDING_ROUTE) {
+            OnboardingScreen(navController)
+        }
+
         composable(NavGraph.HOME_ROUTE) { HomeScreen(navController) }
         composable(NavGraph.DOCTORS_ROUTE) { DoctorsScreen() }
         composable(NavGraph.PHARMACY_ROUTE) { PharmacyScreen(navController, cartViewModel) }
@@ -88,11 +95,7 @@ fun AppNavGraph(
         composable(NavGraph.NOTIFICATIONS_ROUTE) { NotificationScreen(navController) }
         composable(NavGraph.CART_ROUTE) { CartScreen(navController, cartViewModel) }
         composable(NavGraph.PROFILE_ROUTE) { ProfileScreen(navController) }
-
-        // ✅ Edit Profile Screen Entry
-        composable(NavGraph.EDIT_PROFILE_ROUTE) {
-            EditProfileScreen(navController)
-        }
+        composable(NavGraph.EDIT_PROFILE_ROUTE) { EditProfileScreen(navController) }
 
         composable(NavGraph.SYMPTOM_CHECKER_ROUTE) { SymptomCheckerScreen(navController) }
 

@@ -1,7 +1,8 @@
 // App-level build file
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose) // ✅ Naya Compose compiler plugin add kiya (Very Important)
     id("com.google.gms.google-services")
 }
 
@@ -41,9 +42,8 @@ android {
     buildFeatures {
         compose = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
-    }
+    // ❌ Yahan se maine 'composeOptions' block delete kar diya hai kyunki
+    // Kotlin 2.0+ mein uski zaroorat nahi hoti, plugin khud handle karta hai.
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -63,17 +63,19 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.compose.material:material-icons-extended:1.6.2")
+    implementation("com.google.android.gms:play-services-location:21.2.0")
     implementation(libs.play.services.location)
     implementation(libs.androidx.core.splashscreen)
 
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:32.8.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx") // ✅ Added Firestore
     implementation("com.google.android.gms:play-services-auth:21.1.1")
-    implementation("com.google.firebase:firebase-firestore")
 
     // AI Symptom Checker Dependency
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+    implementation(libs.androidx.compose.foundation)
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

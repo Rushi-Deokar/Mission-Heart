@@ -36,6 +36,7 @@ import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.firestore.FirebaseFirestore
 import com.example.missionheart.R
 import kotlinx.coroutines.launch
 
@@ -53,6 +54,7 @@ fun LoginScreen(navController: NavController) {
     val context = LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val db = remember { FirebaseFirestore.getInstance() } // ✅ Added Firestore instance
 
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -63,24 +65,45 @@ fun LoginScreen(navController: NavController) {
     var genericError by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Google Sign-In Launcher Setup
+    // Google Sign-In Logic
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             val account = task.getResult(ApiException::class.java)
             val credential = GoogleAuthProvider.getCredential(account?.idToken, null)
             isLoading = true
-            auth.signInWithCredential(credential)
-                .addOnCompleteListener { authTask ->
-                    isLoading = false
-                    if (authTask.isSuccessful) {
-                        Toast.makeText(context, "Welcome Back!", Toast.LENGTH_SHORT).show()
-                        navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
-                    } else {
-                        genericError = authTask.exception?.message ?: "Google Sign-In Failed"
+
+            auth.signInWithCredential(credential).addOnCompleteListener { authTask ->
+                if (authTask.isSuccessful) {
+                    val user = auth.currentUser
+                    if (user != null) {
+                        db.collection("users").document(user.uid).get()
+                            .addOnSuccessListener { document ->
+                                isLoading = false
+                                if (document.exists() && document.getBoolean("onboardingCompleted") == true) {
+                                    Toast.makeText(context, "Welcome Back!", Toast.LENGTH_SHORT).show()
+                                    navController.navigate(NavGraph.HOME_ROUTE) {
+                                        popUpTo(NavGraph.LOGIN_ROUTE) { inclusive = true }
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Welcome to Mission Heart!", Toast.LENGTH_SHORT).show()
+                                    navController.navigate(NavGraph.ONBOARDING_ROUTE) {
+                                        popUpTo(NavGraph.LOGIN_ROUTE) { inclusive = true }
+                                    }
+                                }
+                            }
+                            .addOnFailureListener {
+                                isLoading = false
+                                Toast.makeText(context, "Network Error. Try Again.", Toast.LENGTH_SHORT).show()
+                            }
                     }
+                } else {
+                    isLoading = false
+                    genericError = authTask.exception?.message ?: "Google Sign-In Failed"
                 }
+            }
         } catch (e: ApiException) {
+            isLoading = false
             genericError = "Google sign in failed: ${e.message}"
         }
     }
@@ -204,10 +227,25 @@ fun LoginScreen(navController: NavController) {
                         isLoading = true
                         auth.signInWithEmailAndPassword(email.trim(), password)
                             .addOnCompleteListener { task ->
-                                isLoading = false
                                 if (task.isSuccessful) {
-                                    navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
+                                    val user = auth.currentUser
+                                    if (user != null) {
+                                        db.collection("users").document(user.uid).get()
+                                            .addOnSuccessListener { document ->
+                                                isLoading = false
+                                                if (document.exists() && document.getBoolean("onboardingCompleted") == true) {
+                                                    navController.navigate(NavGraph.HOME_ROUTE) {
+                                                        popUpTo(NavGraph.LOGIN_ROUTE) { inclusive = true }
+                                                    }
+                                                } else {
+                                                    navController.navigate(NavGraph.ONBOARDING_ROUTE) {
+                                                        popUpTo(NavGraph.LOGIN_ROUTE) { inclusive = true }
+                                                    }
+                                                }
+                                            }
+                                    }
                                 } else {
+                                    isLoading = false
                                     genericError = task.exception?.message ?: "Login failed"
                                 }
                             }
@@ -226,7 +264,7 @@ fun LoginScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // --- GOOGLE SIGN IN BUTTON ---
+            // Google Sign-In Button
             OutlinedButton(
                 onClick = {
                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -248,14 +286,12 @@ fun LoginScreen(navController: NavController) {
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Continue with Google", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
-            // --- END GOOGLE SIGN IN BUTTON ---
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Don't have an account?", color = Color.Gray, fontSize = 14.sp)
-                // Assuming "signup" was your original route name, or use NavGraph.SIGNUP_ROUTE if that's defined in your NavGraph
-                TextButton(onClick = { navController.navigate("signup") }) {
+                TextButton(onClick = { navController.navigate(NavGraph.SIGNUP_ROUTE) }) {
                     Text("Sign Up", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
@@ -268,7 +304,6 @@ fun SignupScreen(navController: NavController) {
     val context = LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val coroutineScope = rememberCoroutineScope()
 
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -391,10 +426,9 @@ fun SignupScreen(navController: NavController) {
 
                                     user?.updateProfile(profileUpdates)?.addOnCompleteListener { profileTask ->
                                         isLoading = false
-                                        if (profileTask.isSuccessful) {
-                                            navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
-                                        } else {
-                                            navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
+                                        // Signup karne wala naya user hi hoga, isliye directly Onboarding
+                                        navController.navigate(NavGraph.ONBOARDING_ROUTE) {
+                                            popUpTo(NavGraph.LOGIN_ROUTE) { inclusive = true }
                                         }
                                     }
                                 } else {

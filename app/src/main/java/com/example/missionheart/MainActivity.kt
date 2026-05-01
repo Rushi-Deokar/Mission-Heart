@@ -6,10 +6,11 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.missionheart.ui.theme.*
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class MainActivity : ComponentActivity() {
 
@@ -43,18 +46,22 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
-            
-            // Request Permissions for Notifications and Activity (Steps)
-            val permissionsToRequest = mutableListOf<String>()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                permissionsToRequest.add(Manifest.permission.ACTIVITY_RECOGNITION)
+
+            // Permissions list prepare karna
+            val permissionsToRequest = remember {
+                mutableListOf<String>().apply {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        add(Manifest.permission.ACTIVITY_RECOGNITION)
+                    }
+                }.toTypedArray()
             }
 
+            // ActivityResultContracts ka proper use
             val launcher = rememberLauncherForActivityResult(
-                ActivityResultContracts.RequestMultiplePermissions()
+                contract = ActivityResultContracts.RequestMultiplePermissions()
             ) { permissions ->
                 val allGranted = permissions.entries.all { it.value }
                 if (!allGranted) {
@@ -62,8 +69,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // App start hote hi permissions maangna
             LaunchedEffect(Unit) {
-                launcher.launch(permissionsToRequest.toTypedArray())
+                if (permissionsToRequest.isNotEmpty()) {
+                    launcher.launch(permissionsToRequest)
+                }
             }
 
             MissionHeartTheme {
@@ -76,8 +86,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp(cartViewModel: CartViewModel) {
     val navController = rememberNavController()
-    val context = LocalContext.current
-    val authManager = remember { AuthManager(context) }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val db = remember { FirebaseFirestore.getInstance() }
 
     val bottomNavItems = listOf(
         BottomNavItem.Home,
@@ -90,50 +100,80 @@ fun MainApp(cartViewModel: CartViewModel) {
     val currentRoute = navBackStackEntry?.destination?.route
     val showBottomBar = currentRoute in bottomNavItems.map { it.route }
 
-    val startRoute = if (authManager.isLoggedIn()) NavGraph.HOME_ROUTE else NavGraph.LOGIN_ROUTE
+    // ✅ Naya Logic: Route ko tab tak null rakho jab tak Database check na ho
+    var startRoute by remember { mutableStateOf<String?>(null) }
 
-    Scaffold(
-        bottomBar = {
-            if (showBottomBar) {
-                ProfessionalBottomBar(
-                    navController = navController,
-                    items = bottomNavItems.map { TabItem(it.route, it.label, it.icon, it.icon) }
-                )
-            }
-        },
-        containerColor = AppBackground
-    ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            NavHost(navController = navController, startDestination = startRoute) {
-                composable(NavGraph.LOGIN_ROUTE) { LoginScreen(navController) }
-                composable(NavGraph.SIGNUP_ROUTE) { SignupScreen(navController) }
-                composable(NavGraph.HOME_ROUTE) { HomeScreen(navController) }
-                composable(NavGraph.DOCTORS_ROUTE) { DoctorsScreen() }
-                composable(NavGraph.PHARMACY_ROUTE) { PharmacyScreen(navController, cartViewModel) }
-                composable(NavGraph.LAB_TESTS_ROUTE) { LabTestScreen(cartViewModel) }
-                composable(NavGraph.SCREENING_ROUTE) { ScreeningScreen(navController) }
-                composable(NavGraph.NOTIFICATIONS_ROUTE) { NotificationScreen(navController) }
-                composable(NavGraph.CART_ROUTE) { CartScreen(navController, cartViewModel) }
-                composable(NavGraph.PROFILE_ROUTE) { ProfileScreen(navController) }
-                composable(NavGraph.SYMPTOM_CHECKER_ROUTE) { SymptomCheckerScreen(navController) }
-                composable(
-                    route = NavGraph.SYMPTOM_RESULT_ROUTE,
-                    arguments = listOf(navArgument("symptoms") { type = NavType.StringType })
-                ) { backStackEntry ->
-                    val symptoms = backStackEntry.arguments?.getString("symptoms")?.split(",") ?: emptyList()
-                    SymptomAnalysisResultScreen(navController, symptoms)
+    LaunchedEffect(Unit) {
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            startRoute = NavGraph.LOGIN_ROUTE
+        } else {
+            // User logged in hai, check karo Onboarding complete hui hai ya nahi
+            db.collection("users").document(currentUser.uid).get()
+                .addOnSuccessListener { document ->
+                    if (document.exists() && document.getBoolean("onboardingCompleted") == true) {
+                        startRoute = NavGraph.HOME_ROUTE
+                    } else {
+                        startRoute = NavGraph.ONBOARDING_ROUTE
+                    }
                 }
-                composable(NavGraph.MEDICINE_REMINDER_ROUTE) { MedicineReminderScreen(navController) }
-                composable(NavGraph.CATEGORY_CANCER_ROUTE) { CategoryCancerScreen(navController) }
-                composable(NavGraph.CATEGORY_HEART_ROUTE) { CategoryHeartScreen(navController) }
-                composable(NavGraph.CATEGORY_METABOLIC_ROUTE) { CategoryMetabolicScreen(navController) }
-                composable(NavGraph.CATEGORY_NEUROLOGICAL_ROUTE) { CategoryNeurologicalScreen(navController) }
-                composable(NavGraph.ABOUT_ROUTE) { AboutScreen() }
-                composable(NavGraph.CONTACT_ROUTE) { ContactScreen() }
-                composable(NavGraph.CONDITIONS_ROUTE) { ConditionsScreen() }
-                composable(NavGraph.BLOG_ROUTE) { BlogScreen() }
-                composable(NavGraph.FIND_SPECIALIST_ROUTE) { FindASpecialistScreen() }
-                composable(NavGraph.WHY_EARLY_DIAGNOSIS_ROUTE) { WhyEarlyDiagnosisScreen(navController) }
+                .addOnFailureListener {
+                    startRoute = NavGraph.LOGIN_ROUTE // Error aane par wapas login par
+                }
+        }
+    }
+
+    // ✅ Loading Screen: Jab tak check chal raha hai
+    if (startRoute == null) {
+        Box(modifier = Modifier.fillMaxSize().background(AppBackground), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = BrandBlue)
+        }
+    } else {
+        Scaffold(
+            bottomBar = {
+                if (showBottomBar) {
+                    ProfessionalBottomBar(
+                        navController = navController,
+                        items = bottomNavItems.map { TabItem(it.route, it.label, it.icon, it.icon) }
+                    )
+                }
+            },
+            containerColor = AppBackground
+        ) { innerPadding ->
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                NavHost(navController = navController, startDestination = startRoute!!) {
+                    composable(NavGraph.LOGIN_ROUTE) { LoginScreen(navController) }
+                    composable(NavGraph.SIGNUP_ROUTE) { SignupScreen(navController) }
+                    composable(NavGraph.ONBOARDING_ROUTE) { OnboardingScreen(navController) }
+                    composable(NavGraph.HOME_ROUTE) { HomeScreen(navController) }
+                    composable(NavGraph.DOCTORS_ROUTE) { DoctorsScreen() }
+                    composable(NavGraph.PHARMACY_ROUTE) { PharmacyScreen(navController, cartViewModel) }
+                    composable(NavGraph.LAB_TESTS_ROUTE) { LabTestScreen(cartViewModel) }
+                    composable(NavGraph.SCREENING_ROUTE) { ScreeningScreen(navController) }
+                    composable(NavGraph.NOTIFICATIONS_ROUTE) { NotificationScreen(navController) }
+                    composable(NavGraph.CART_ROUTE) { CartScreen(navController, cartViewModel) }
+                    composable(NavGraph.PROFILE_ROUTE) { ProfileScreen(navController) }
+                    composable(NavGraph.EDIT_PROFILE_ROUTE) { EditProfileScreen(navController) }
+                    composable(NavGraph.SYMPTOM_CHECKER_ROUTE) { SymptomCheckerScreen(navController) }
+                    composable(
+                        route = NavGraph.SYMPTOM_RESULT_ROUTE,
+                        arguments = listOf(navArgument("symptoms") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val symptoms = backStackEntry.arguments?.getString("symptoms")?.split(",") ?: emptyList()
+                        SymptomAnalysisResultScreen(navController, symptoms)
+                    }
+                    composable(NavGraph.MEDICINE_REMINDER_ROUTE) { MedicineReminderScreen(navController) }
+                    composable(NavGraph.CATEGORY_CANCER_ROUTE) { CategoryCancerScreen(navController) }
+                    composable(NavGraph.CATEGORY_HEART_ROUTE) { CategoryHeartScreen(navController) }
+                    composable(NavGraph.CATEGORY_METABOLIC_ROUTE) { CategoryMetabolicScreen(navController) }
+                    composable(NavGraph.CATEGORY_NEUROLOGICAL_ROUTE) { CategoryNeurologicalScreen(navController) }
+                    composable(NavGraph.ABOUT_ROUTE) { AboutScreen() }
+                    composable(NavGraph.CONTACT_ROUTE) { ContactScreen() }
+                    composable(NavGraph.CONDITIONS_ROUTE) { ConditionsScreen() }
+                    composable(NavGraph.BLOG_ROUTE) { BlogScreen() }
+                    composable(NavGraph.FIND_SPECIALIST_ROUTE) { FindASpecialistScreen() }
+                    composable(NavGraph.WHY_EARLY_DIAGNOSIS_ROUTE) { WhyEarlyDiagnosisScreen(navController) }
+                }
             }
         }
     }

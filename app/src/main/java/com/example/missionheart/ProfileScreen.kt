@@ -1,6 +1,7 @@
 package com.example.missionheart
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border // ✅ Added border import
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -32,12 +34,10 @@ import com.google.firebase.auth.FirebaseAuth
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(navController: NavController) {
-    // --- FIREBASE SETUP ---
     val context = LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
     val currentUser = auth.currentUser
 
-    // Fetching Live Data (Fallback set to Rushikesh Deokar if name is empty)
     val userName = currentUser?.displayName ?: "Rushikesh Deokar"
     val userEmail = currentUser?.email ?: "No email provided"
 
@@ -62,16 +62,14 @@ fun ProfileScreen(navController: NavController) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // 1. User Info Header (Dynamic Data Here)
             item {
                 UserProfileHeader(
                     name = userName,
-                    details = userEmail, // Changed phone to email since Firebase primarily uses email
-                    onEditClick = { navController.navigate("edit_profile") }
+                    details = userEmail,
+                    onEditClick = { navController.navigate(NavGraph.EDIT_PROFILE_ROUTE) }
                 )
             }
 
-            // 2. Health & Orders Section
             item {
                 ProfileSectionTitle("My Activity")
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -81,7 +79,6 @@ fun ProfileScreen(navController: NavController) {
                 }
             }
 
-            // 3. Account Settings
             item {
                 ProfileSectionTitle("Account Settings")
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,28 +88,22 @@ fun ProfileScreen(navController: NavController) {
                 }
             }
 
-            // 4. App Info & Logout (Real Logout Logic Here)
             item {
                 ProfileSectionTitle("Support")
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ProfileOptionItem(icon = Icons.Default.Help, title = "Help & Support", subtitle = "FAQs & Customer Care", onClick = {})
                     LogoutButton(onClick = {
-                        // 1. Firebase Logout
                         auth.signOut()
-
-                        // 2. Google Logout
                         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
                         GoogleSignIn.getClient(context, gso).signOut().addOnCompleteListener {
-                            // 3. Navigate to Login (Assuming NavGraph.AUTH_ROUTE or "login")
-                            navController.navigate("login") {
-                                popUpTo(0) // Clear backstack so user can't press back to enter app
+                            navController.navigate(NavGraph.LOGIN_ROUTE) {
+                                popUpTo(0)
                             }
                         }
                     })
                 }
             }
 
-            // Version Info
             item {
                 Box(modifier = Modifier.fillMaxWidth().padding(top = 20.dp), contentAlignment = Alignment.Center) {
                     Text("Version 1.0.0", color = TextSecondary, fontSize = 12.sp)
@@ -131,20 +122,31 @@ fun UserProfileHeader(name: String, details: String, onEditClick: () -> Unit) {
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+
+        // ✅ THE FIX: Outer Box with NO CLIP! Size is slightly larger to fit the badge
         Box(
-            modifier = Modifier
-                .size(70.dp)
-                .clip(CircleShape)
-                .background(InputFieldBg),
-            contentAlignment = Alignment.Center
+            modifier = Modifier.size(76.dp)
         ) {
-            Icon(Icons.Default.Person, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(35.dp))
+            // 1. Main Avatar (Sirf isko clip kiya hai)
+            Box(
+                modifier = Modifier
+                    .size(70.dp)
+                    .align(Alignment.TopStart)
+                    .clip(CircleShape)
+                    .background(InputFieldBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(35.dp))
+            }
+
+            // 2. Edit Pencil Badge (Overlapping perfectly at the bottom-right)
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(24.dp)
+                    .size(28.dp) // Thoda bada size
                     .clip(CircleShape)
                     .background(BrandBlue)
+                    .border(2.dp, SurfaceWhite, CircleShape) // ✅ PRO TRICK: White Border matching card color!
                     .clickable { onEditClick() },
                 contentAlignment = Alignment.Center
             ) {
@@ -155,9 +157,9 @@ fun UserProfileHeader(name: String, details: String, onEditClick: () -> Unit) {
         Spacer(modifier = Modifier.width(16.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text(name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(details, fontSize = 14.sp, color = TextSecondary)
+            Text(details, fontSize = 13.sp, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
