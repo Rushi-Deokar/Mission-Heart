@@ -1,6 +1,7 @@
 package com.example.missionheart
 
 import android.util.Patterns
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -27,8 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.missionheart.ui.theme.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.UserProfileChangeRequest
 
 // Helper Functions for Validation
 fun isValidEmail(email: String): Boolean {
@@ -42,15 +43,13 @@ fun isValidPassword(password: String): Boolean {
 @Composable
 fun LoginScreen(navController: NavController) {
     val context = LocalContext.current
-    val authManager = remember { AuthManager(context) }
-    val coroutineScope = rememberCoroutineScope()
+    val auth = remember { FirebaseAuth.getInstance() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
 
-    // State for specific field errors and loading
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
     var genericError by remember { mutableStateOf<String?>(null) }
@@ -127,7 +126,6 @@ fun LoginScreen(navController: NavController) {
                 singleLine = true
             )
 
-            // General Error Message
             AnimatedVisibility(visible = genericError != null) {
                 Text(
                     text = genericError ?: "",
@@ -139,7 +137,19 @@ fun LoginScreen(navController: NavController) {
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { /* Forgot pass logic later */ }) {
+                TextButton(onClick = { 
+                    if (email.isBlank()) {
+                        emailError = "Enter email to reset password"
+                    } else {
+                        auth.sendPasswordResetEmail(email.trim()).addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                Toast.makeText(context, "Reset link sent to your email", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Error: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }) {
                     Text("Forgot Password?", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -149,9 +159,7 @@ fun LoginScreen(navController: NavController) {
             // Login Button
             Button(
                 onClick = {
-                    keyboardController?.hide() // Hide keyboard on click
-
-                    // 1. Validation Logic
+                    keyboardController?.hide()
                     var isValid = true
                     if (!isValidEmail(email)) {
                         emailError = "Please enter a valid email"
@@ -162,24 +170,22 @@ fun LoginScreen(navController: NavController) {
                         isValid = false
                     }
 
-                    // 2. Authentication Logic
                     if (isValid) {
                         isLoading = true
-                        coroutineScope.launch {
-                            delay(1200) // Simulate network delay for premium feel
-
-                            if (authManager.loginUser(email.trim(), password)) {
-                                navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
-                            } else {
-                                genericError = "Invalid Email or Password. Please try again."
+                        auth.signInWithEmailAndPassword(email.trim(), password)
+                            .addOnCompleteListener { task ->
+                                isLoading = false
+                                if (task.isSuccessful) {
+                                    navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
+                                } else {
+                                    genericError = task.exception?.message ?: "Login failed"
+                                }
                             }
-                            isLoading = false
-                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(12.dp),
-                enabled = !isLoading // Disable button while loading
+                enabled = !isLoading
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -203,8 +209,7 @@ fun LoginScreen(navController: NavController) {
 @Composable
 fun SignupScreen(navController: NavController) {
     val context = LocalContext.current
-    val authManager = remember { AuthManager(context) }
-    val coroutineScope = rememberCoroutineScope()
+    val auth = remember { FirebaseAuth.getInstance() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
     var name by remember { mutableStateOf("") }
@@ -212,7 +217,6 @@ fun SignupScreen(navController: NavController) {
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
 
-    // States for validation
     var nameError by remember { mutableStateOf<String?>(null) }
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
@@ -294,8 +298,6 @@ fun SignupScreen(navController: NavController) {
             Button(
                 onClick = {
                     keyboardController?.hide()
-
-                    // Validation
                     var isValid = true
                     if (name.trim().length < 3) {
                         nameError = "Name must be at least 3 characters"
@@ -312,12 +314,28 @@ fun SignupScreen(navController: NavController) {
 
                     if (isValid) {
                         isLoading = true
-                        coroutineScope.launch {
-                            delay(1500) // Simulate network delay
-                            authManager.registerUser(name.trim(), email.trim(), password)
-                            navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
-                            isLoading = false
-                        }
+                        auth.createUserWithEmailAndPassword(email.trim(), password)
+                            .addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    val user = auth.currentUser
+                                    val profileUpdates = UserProfileChangeRequest.Builder()
+                                        .setDisplayName(name.trim())
+                                        .build()
+                                    
+                                    user?.updateProfile(profileUpdates)?.addOnCompleteListener { profileTask ->
+                                        isLoading = false
+                                        if (profileTask.isSuccessful) {
+                                            navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
+                                        } else {
+                                            Toast.makeText(context, "Error updating profile", Toast.LENGTH_SHORT).show()
+                                            navController.navigate(NavGraph.HOME_ROUTE) { popUpTo(0) }
+                                        }
+                                    }
+                                } else {
+                                    isLoading = false
+                                    Toast.makeText(context, "Registration failed: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),

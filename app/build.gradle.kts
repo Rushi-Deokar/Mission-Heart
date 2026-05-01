@@ -1,7 +1,7 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -65,7 +65,10 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.androidx.core.splashscreen)
 
-    
+    // Firebase
+    implementation(platform("com.google.firebase:firebase-bom:32.8.0"))
+    implementation("com.google.firebase:firebase-auth-ktx")
+
     // AI Symptom Checker Dependency
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 

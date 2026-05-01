@@ -7,14 +7,19 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -31,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +55,7 @@ fun PharmacyScreen(navController: NavController, cartViewModel: CartViewModel) {
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    // Calculate total medicine items in cart
     val cartCount = cartViewModel.cartItems.filter { it.type == CartItemType.MEDICINE }.sumOf { it.quantity }
 
     var showUploadSheet by remember { mutableStateOf(false) }
@@ -148,11 +153,23 @@ fun PharmacyScreen(navController: NavController, cartViewModel: CartViewModel) {
                             Icon(Icons.Outlined.ShoppingCart, contentDescription = "Cart", tint = TextPrimary)
                         }
                         if (cartCount > 0) {
-                            Box(
-                                modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp).size(16.dp).clip(CircleShape).background(ActionOrange),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(cartCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            AnimatedContent(
+                                targetState = cartCount,
+                                transitionSpec = {
+                                    scaleIn(animationSpec = tween(300)) togetherWith scaleOut(animationSpec = tween(300))
+                                }, label = "cart_animation"
+                            ) { targetCount ->
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 4.dp, end = 4.dp)
+                                        .size(18.dp)
+                                        .clip(CircleShape)
+                                        .background(ActionOrange),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(targetCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
@@ -162,53 +179,78 @@ fun PharmacyScreen(navController: NavController, cartViewModel: CartViewModel) {
         },
         containerColor = AppBackground
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            item { SearchBarMeds(searchQuery) { searchQuery = it } }
 
-            item {
-                if (uploadSuccess) SuccessBanner()
-                else UploadPrescriptionBanner(isUploading) { showUploadSheet = true }
+        // Single LazyVerticalGrid to handle scrolling perfectly without nested scroll issues
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+
+            // 1. Search Bar
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SearchBarMeds(searchQuery) { searchQuery = it }
             }
 
-            item {
-                PharmaSectionTitle("Shop by Category")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(categories) { cat ->
-                        CategoryItem(cat, selectedCategory == cat.id) { selectedCategory = cat.id }
-                    }
+            // 2. Banner Section
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                if (uploadSuccess) {
+                    SuccessBanner()
+                } else {
+                    UploadPrescriptionBanner(isUploading) { showUploadSheet = true }
                 }
             }
 
-            item {
-                PharmaSectionTitle(if (selectedCategory == "All") "Popular Products" else "$selectedCategory Medicines")
-                Spacer(modifier = Modifier.height(12.dp))
-                if (filteredMedicines.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                        Text("No medicines found", color = TextSecondary)
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        modifier = Modifier.height(500.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        userScrollEnabled = false
-                    ) {
-                        items(filteredMedicines) { med ->
-                            MedicineCard(med) {
-                                cartViewModel.addMedicine(med)
-                                Toast.makeText(context, "${med.name} added to cart", Toast.LENGTH_SHORT).show()
-                            }
+            // 3. Category Carousel
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    PharmaSectionTitle("Shop by Category")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(categories) { cat ->
+                            CategoryItem(cat, selectedCategory == cat.id) { selectedCategory = cat.id }
                         }
                     }
                 }
             }
-            item { Spacer(modifier = Modifier.height(50.dp)) }
+
+            // 4. Section Title
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                PharmaSectionTitle(if (selectedCategory == "All") "Popular Products" else "$selectedCategory Medicines")
+            }
+
+            // 5. Medicines Grid
+            if (filteredMedicines.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                        Text("No medicines found", color = TextSecondary)
+                    }
+                }
+            } else {
+                items(filteredMedicines) { med ->
+                    MedicineCard(
+                        medicine = med,
+                        onCardClick = {
+                            // TODO: Navigate to Product Detail Screen later
+                            Toast.makeText(context, "Details for ${med.name}", Toast.LENGTH_SHORT).show()
+                        },
+                        onAddClick = {
+                            cartViewModel.addMedicine(med)
+                            Toast.makeText(context, "${med.name} added to cart", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+            }
+
+            // 6. Bottom Padding
+            item(span = { GridItemSpan(maxLineSpan) }) { Spacer(modifier = Modifier.height(30.dp)) }
         }
 
+        // Bottom Sheet for Prescription Upload
         if (showUploadSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showUploadSheet = false },
@@ -232,9 +274,19 @@ fun PharmacyScreen(navController: NavController, cartViewModel: CartViewModel) {
 }
 
 @Composable
-fun MedicineCard(medicine: Medicine, onAddClick: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SurfaceWhite).padding(12.dp)) {
-        Box(modifier = Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(12.dp)).background(InputFieldBg), contentAlignment = Alignment.Center) {
+fun MedicineCard(medicine: Medicine, onAddClick: () -> Unit, onCardClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(SurfaceWhite)
+            .clickable { onCardClick() } // Main card click
+            .padding(12.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(12.dp)).background(InputFieldBg),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(medicine.icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(48.dp))
         }
         Spacer(modifier = Modifier.height(12.dp))
@@ -248,7 +300,12 @@ fun MedicineCard(medicine: Medicine, onAddClick: () -> Unit) {
         }
         Spacer(modifier = Modifier.height(12.dp))
         Box(
-            modifier = Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, BrandBlue, RoundedCornerShape(8.dp)).clickable { onAddClick() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, BrandBlue, RoundedCornerShape(8.dp))
+                .clickable { onAddClick() }, // Separate click for Add to Cart
             contentAlignment = Alignment.Center
         ) {
             Text("ADD TO CART", color = BrandBlue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -299,16 +356,33 @@ fun SearchBarMeds(value: String, onValueChange: (String) -> Unit) {
         onValueChange = onValueChange,
         placeholder = { Text("Search medicines, health products...", color = TextSecondary) },
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
+        trailingIcon = {
+            if (value.isNotEmpty()) {
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(Icons.Default.Clear, contentDescription = "Clear search", tint = TextSecondary)
+                }
+            }
+        },
         modifier = Modifier.fillMaxWidth().height(52.dp).border(1.dp, InputFieldBg, RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp),
-        colors = TextFieldDefaults.colors(focusedContainerColor = InputFieldBg, unfocusedContainerColor = InputFieldBg, focusedIndicatorColor = BrandBlue, unfocusedIndicatorColor = Color.Transparent, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = InputFieldBg,
+            unfocusedContainerColor = InputFieldBg,
+            focusedIndicatorColor = BrandBlue,
+            unfocusedIndicatorColor = Color.Transparent,
+            focusedTextColor = TextPrimary,
+            unfocusedTextColor = TextPrimary
+        ),
         singleLine = true
     )
 }
 
 @Composable
 fun UploadPrescriptionBanner(isUploading: Boolean, onClick: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brush.horizontalGradient(listOf(BrandBlue, Color(0xFF1976D2)))).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brush.horizontalGradient(listOf(BrandBlue, Color(0xFF1976D2)))).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Column(modifier = Modifier.weight(1f)) {
             Text("Order via Prescription", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text("Upload a photo of your Rx", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
@@ -324,7 +398,10 @@ fun UploadPrescriptionBanner(isUploading: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun SuccessBanner() {
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SuccessGreen.copy(alpha = 0.1f)).border(1.dp, SuccessGreen, RoundedCornerShape(16.dp)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SuccessGreen.copy(alpha = 0.1f)).border(1.dp, SuccessGreen, RoundedCornerShape(16.dp)).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Icon(Icons.Outlined.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(32.dp))
         Spacer(modifier = Modifier.width(12.dp))
         Column {
@@ -337,7 +414,10 @@ fun SuccessBanner() {
 @Composable
 fun CategoryItem(category: Category, isSelected: Boolean, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(80.dp).clickable { onClick() }) {
-        Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(if (isSelected) category.color else SurfaceWhite).border(if (isSelected) 0.dp else 1.dp, InputFieldBg, CircleShape), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.size(60.dp).clip(CircleShape).background(if (isSelected) category.color else SurfaceWhite).border(if (isSelected) 0.dp else 1.dp, InputFieldBg, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(category.icon, null, tint = if (isSelected) Color.White else category.color, modifier = Modifier.size(24.dp))
         }
         Spacer(modifier = Modifier.height(8.dp))
