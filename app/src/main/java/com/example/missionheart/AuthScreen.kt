@@ -80,8 +80,8 @@ fun LoginScreen(navController: NavController) {
             // Email Field
             OutlinedTextField(
                 value = email,
-                onValueChange = {
-                    email = it
+                onValueChange = { newEmail ->  // Fixed: Explicitly named the parameter
+                    email = newEmail
                     emailError = null
                     genericError = null
                 },
@@ -102,8 +102,8 @@ fun LoginScreen(navController: NavController) {
             // Password Field
             OutlinedTextField(
                 value = password,
-                onValueChange = {
-                    password = it
+                onValueChange = { newPassword -> // Fixed: Explicitly named the parameter
+                    password = newPassword
                     passwordError = null
                     genericError = null
                 },
@@ -137,7 +137,7 @@ fun LoginScreen(navController: NavController) {
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { 
+                TextButton(onClick = {
                     if (email.isBlank()) {
                         emailError = "Enter email to reset password"
                     } else {
@@ -245,7 +245,10 @@ fun SignupScreen(navController: NavController) {
 
             OutlinedTextField(
                 value = name,
-                onValueChange = { name = it; nameError = null },
+                onValueChange = { newName -> // Fixed
+                    name = newName
+                    nameError = null
+                },
                 label = { Text("Full Name") },
                 leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
                 isError = nameError != null,
@@ -260,7 +263,10 @@ fun SignupScreen(navController: NavController) {
 
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it; emailError = null },
+                onValueChange = { newEmail -> // Fixed
+                    email = newEmail
+                    emailError = null
+                },
                 label = { Text("Email Address") },
                 leadingIcon = { Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary) },
                 isError = emailError != null,
@@ -275,7 +281,10 @@ fun SignupScreen(navController: NavController) {
 
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it; passwordError = null },
+                onValueChange = { newPassword -> // Fixed
+                    password = newPassword
+                    passwordError = null
+                },
                 label = { Text("Password") },
                 leadingIcon = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
                 trailingIcon = {
@@ -321,7 +330,7 @@ fun SignupScreen(navController: NavController) {
                                     val profileUpdates = UserProfileChangeRequest.Builder()
                                         .setDisplayName(name.trim())
                                         .build()
-                                    
+
                                     user?.updateProfile(profileUpdates)?.addOnCompleteListener { profileTask ->
                                         isLoading = false
                                         if (profileTask.isSuccessful) {
