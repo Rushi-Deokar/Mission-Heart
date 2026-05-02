@@ -91,6 +91,7 @@ fun MainApp(cartViewModel: CartViewModel) {
 
     val bottomNavItems = listOf(
         BottomNavItem.Home,
+        BottomNavItem.AIChat,
         BottomNavItem.Doctors,
         BottomNavItem.Pharmacy,
         BottomNavItem.LabTests
@@ -155,6 +156,7 @@ fun MainApp(cartViewModel: CartViewModel) {
                     composable(NavGraph.PROFILE_ROUTE) { ProfileScreen(navController) }
                     composable(NavGraph.EDIT_PROFILE_ROUTE) { EditProfileScreen(navController) }
                     composable(NavGraph.SYMPTOM_CHECKER_ROUTE) { SymptomCheckerScreen(navController) }
+                    composable(NavGraph.AI_CHAT_ROUTE) { AIHealthChatScreen(navController) }
                     composable(
                         route = NavGraph.SYMPTOM_RESULT_ROUTE,
                         arguments = listOf(navArgument("symptoms") { type = NavType.StringType })

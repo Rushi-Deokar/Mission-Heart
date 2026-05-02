@@ -40,6 +40,11 @@ import androidx.navigation.NavController
 import com.example.missionheart.ui.theme.*
 import kotlinx.coroutines.launch
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.RequestOptions
+import com.google.ai.client.generativeai.type.ResponseStoppedException
+import com.google.ai.client.generativeai.type.SerializationException
+import kotlinx.serialization.SerializationException as KotlinSerializationException
+import com.example.missionheart.BuildConfig
 
 // --- DATA MODELS ---
 
@@ -212,24 +217,54 @@ fun SymptomCard(symptom: SymptomData, isSelected: Boolean, onClick: () -> Unit) 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SymptomAnalysisResultScreen(navController: NavController, symptoms: List<String>) {
+    val auth = remember { com.google.firebase.auth.FirebaseAuth.getInstance() }
+    val currentUser = auth.currentUser
+    val fullName = currentUser?.displayName ?: "User"
+    val userName = fullName.split(" ").firstOrNull() ?: "User"
+
     var isAnalyzing by remember { mutableStateOf(true) }
     var aiAssessment by remember { mutableStateOf("") }
 
     val generativeModel = remember {
         GenerativeModel(
-            modelName = "gemini-1.5-flash",
-            apiKey = "AIzaSyD6inciuf-Toa1p0OyXYa-K9Id8P_Ug6FY"
+            modelName = "gemini-3-flash-preview", // Updated to the requested 3.0 preview model
+            apiKey = BuildConfig.GEMINI_API_KEY,
+            requestOptions = RequestOptions(apiVersion = "v1beta") // Preview models often require v1beta
         )
     }
 
     LaunchedEffect(symptoms) {
         try {
-            val prompt = "The user has these symptoms: ${symptoms.joinToString(", ")}. Provide a professional, 3-line medical assessment citing trusted sources. Focus on potential causes and importance of checkup."
+            val prompt = """
+                User Name: $userName
+                Symptoms: ${symptoms.joinToString(", ")}
+                
+                Please provide a personalized medical assessment for $userName. 
+                Structure it in exactly 3 lines:
+                1. A friendly greeting and summary of potential causes for these symptoms.
+                2. Professional advice citing trusted sources (like Mayo Clinic or WHO).
+                3. A clear recommendation for next steps or checkup importance.
+            """.trimIndent()
+
             val response = generativeModel.generateContent(prompt)
             aiAssessment = response.text ?: "No assessment available."
+        } catch (e: ResponseStoppedException) {
+            Log.e("GeminiError", "Response stopped", e)
+            aiAssessment = "The AI response was filtered due to safety policies. Please try describing your symptoms differently."
+        } catch (e: SerializationException) {
+            Log.e("GeminiError", "SDK Serialization error", e)
+            aiAssessment = "Medical data processing error. This usually happens during API updates. Please try again in a few moments."
+        } catch (e: KotlinSerializationException) {
+            Log.e("GeminiError", "Kotlin Serialization error (MissingField)", e)
+            aiAssessment = "The AI service returned an unexpected response format. We are working on a fix. Please try again later."
         } catch (e: Exception) {
             Log.e("GeminiError", "AI Error", e)
-            aiAssessment = "Error: ${e.localizedMessage ?: "Unknown error"}. Please check your connection and API settings."
+            val errorMessage = when {
+                e.message?.contains("404") == true -> "Error 404: The model 'gemini-3-flash-preview' was not found. Please ensure it is enabled in your region."
+                e.message?.contains("429") == true -> "Rate limit exceeded. Please wait a moment before trying again."
+                else -> e.localizedMessage ?: "An unexpected connection error occurred."
+            }
+            aiAssessment = "Analysis Error: $errorMessage"
         } finally {
             isAnalyzing = false
         }

@@ -190,8 +190,31 @@ fun HomeScreen(navController: NavController) {
         containerColor = ThemeBg,
         floatingActionButton = {
             if (searchQuery.isEmpty()) {
-                FloatingActionButton(onClick = { }, containerColor = ErrorRed, contentColor = SurfaceWhite, shape = CircleShape) {
-                    Icon(Icons.Rounded.Phone, "SOS", Modifier.size(28.dp))
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Quick AI Access FAB
+                    FloatingActionButton(
+                        onClick = { navController.navigate(NavGraph.AI_CHAT_ROUTE) },
+                        containerColor = BrandTeal,
+                        contentColor = Color.White,
+                        shape = CircleShape,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Icon(Icons.Default.SmartToy, "AI Chat", Modifier.size(28.dp))
+                    }
+
+                    // SOS Emergency FAB
+                    FloatingActionButton(
+                        onClick = { /* Emergency Logic */ },
+                        containerColor = ErrorRed,
+                        contentColor = SurfaceWhite,
+                        shape = CircleShape,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Icon(Icons.Rounded.Phone, "SOS", Modifier.size(28.dp))
+                    }
                 }
             }
         }

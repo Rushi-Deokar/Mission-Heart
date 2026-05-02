@@ -40,6 +40,7 @@ object NavGraph {
     const val SYMPTOM_CHECKER_ROUTE = "symptom_checker"
     const val SYMPTOM_RESULT_ROUTE = "symptom_analysis_result/{symptoms}"
     const val MEDICINE_REMINDER_ROUTE = "medicine_reminder"
+    const val AI_CHAT_ROUTE = "ai_chat"
 
     // --- SPECIALIZED CATEGORY ROUTES ---
     const val CATEGORY_CANCER_ROUTE = "category/cancer"
@@ -58,7 +59,8 @@ object NavGraph {
 
 sealed class BottomNavItem(val route: String, val label: String, val icon: ImageVector) {
     object Home : BottomNavItem(NavGraph.HOME_ROUTE, "Home", Icons.Default.Home)
-    object Doctors : BottomNavItem(NavGraph.DOCTORS_ROUTE, "Doctors", Icons.Default.Person)
+    object AIChat : BottomNavItem(NavGraph.AI_CHAT_ROUTE, "AI Chat", Icons.Default.SmartToy)
+    object Doctors : BottomNavItem(NavGraph.DOCTORS_ROUTE, "Doctors", Icons.Default.MedicalServices)
     object Pharmacy : BottomNavItem(NavGraph.PHARMACY_ROUTE, "Pharmacy", Icons.Default.LocalPharmacy)
     object LabTests : BottomNavItem(NavGraph.LAB_TESTS_ROUTE, "Lab Tests", Icons.Default.Science)
     object Insurance : BottomNavItem(NavGraph.INSURANCE_ROUTE, "Insurance", Icons.Default.Security)
@@ -98,6 +100,8 @@ fun AppNavGraph(
         composable(NavGraph.EDIT_PROFILE_ROUTE) { EditProfileScreen(navController) }
 
         composable(NavGraph.SYMPTOM_CHECKER_ROUTE) { SymptomCheckerScreen(navController) }
+
+        composable(NavGraph.AI_CHAT_ROUTE) { AIHealthChatScreen(navController) }
 
         composable(
             route = NavGraph.SYMPTOM_RESULT_ROUTE,
