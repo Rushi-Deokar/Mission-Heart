@@ -41,6 +41,7 @@ object NavGraph {
     const val SYMPTOM_RESULT_ROUTE = "symptom_analysis_result/{symptoms}"
     const val MEDICINE_REMINDER_ROUTE = "medicine_reminder"
     const val AI_CHAT_ROUTE = "ai_chat"
+    const val AI_CHAT_WITH_ID_ROUTE = "ai_chat/{sessionId}"
 
     // --- SPECIALIZED CATEGORY ROUTES ---
     const val CATEGORY_CANCER_ROUTE = "category/cancer"

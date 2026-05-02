@@ -156,7 +156,14 @@ fun MainApp(cartViewModel: CartViewModel) {
                     composable(NavGraph.PROFILE_ROUTE) { ProfileScreen(navController) }
                     composable(NavGraph.EDIT_PROFILE_ROUTE) { EditProfileScreen(navController) }
                     composable(NavGraph.SYMPTOM_CHECKER_ROUTE) { SymptomCheckerScreen(navController) }
-                    composable(NavGraph.AI_CHAT_ROUTE) { AIHealthChatScreen(navController) }
+                    composable(NavGraph.AI_CHAT_ROUTE) { AIHealthChatScreen(navController, null) }
+                    composable(
+                        route = NavGraph.AI_CHAT_WITH_ID_ROUTE,
+                        arguments = listOf(navArgument("sessionId") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val sessionId = backStackEntry.arguments?.getString("sessionId")
+                        AIHealthChatScreen(navController, sessionId)
+                    }
                     composable(
                         route = NavGraph.SYMPTOM_RESULT_ROUTE,
                         arguments = listOf(navArgument("symptoms") { type = NavType.StringType })
