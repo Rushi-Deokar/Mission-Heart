@@ -2,19 +2,26 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Location & Internet Permissions -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Camera & Storage -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Health & Fitness -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
-    
-    <!-- Notification Permissions -->
+
+    <!-- ✅ Medicine Notification & Alarm Permissions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
@@ -25,8 +32,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.App.Starting"
-        android:usesCleartextTraffic="true">
-        
+        android:usesCleartextTraffic="true"
+        tools:targetApi="31">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -38,11 +46,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Broadcast Receiver for Medicine Reminders -->
+        <!-- ✅ Receiver for Medicine Reminders -->
+        <!-- Iska exported=false hona security ke liye achha hai -->
         <receiver
             android:name=".MedicineAlarmReceiver"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <!-- Boot completed help karta hai phone restart hone par alarms reset karne mein -->
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

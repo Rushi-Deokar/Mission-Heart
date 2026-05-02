@@ -63,9 +63,7 @@ import java.util.*
 
 // ── Data Models ──────────────────────────
 data class ServiceItem(val title: String, val subtitle: String, val icon: ImageVector, val route: String, val color: Color)
-
 data class HealthChallenge(val id: String, val title: String, val description: String, val progress: Int, val target: Int, val current: Int, val icon: ImageVector, val color: Color, val points: Int, val streak: Int = 0, val unit: String = "units")
-
 data class WaterLog(val amount: Int, val time: String)
 data class HydrationTask(val id: String, val text: String, var isCompleted: Boolean = false)
 
@@ -100,7 +98,7 @@ fun HomeScreen(navController: NavController) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showDetailSheet by remember { mutableStateOf<String?>(null) }
 
-    // ✅ MAGIC ENGINE: Live GPS Location Fetcher
+    // ✅ FREE GPS LOGIC (No API Key Required)
     fun fetchLiveLocation() {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -108,6 +106,7 @@ fun HomeScreen(navController: NavController) {
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null) {
                     try {
+                        // Android ka native free Geocoder
                         val geocoder = Geocoder(context, Locale.getDefault())
                         val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
                         if (!addresses.isNullOrEmpty()) {
@@ -117,9 +116,11 @@ fun HomeScreen(navController: NavController) {
                             location = newLoc
                             sharedPrefs.edit().putString("saved_location", newLoc).apply()
                             showLocationSheet = false
+                        } else {
+                            Toast.makeText(context, "Location found, but name unavailable.", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
-                        Toast.makeText(context, "GPS active, but couldn't get city name.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Network issue in fetching city name.", Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     Toast.makeText(context, "Please turn on GPS and try again.", Toast.LENGTH_LONG).show()
@@ -128,10 +129,7 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
-    // Permission Launcher for GPS
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
+    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
             fetchLiveLocation()
         } else {
@@ -139,7 +137,6 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
-    // Load initial logs and steps logic...
     LaunchedEffect(Unit) {
         val savedLogs = sharedPrefs.getStringSet("water_logs_$today", emptySet())
         savedLogs?.forEach {
@@ -220,35 +217,31 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
-    // ✅ Location Bottom Sheet connected with LIVE logic
+    // ✅ Bill-Free Location Sheet
     if (showLocationSheet) {
         LocationSelectionSheet(
             currentLocation = location,
             onLocationSelected = { newLocation ->
                 location = newLocation
-                sharedPrefs.edit().putString("saved_location", newLocation).apply() // Save for next time
+                sharedPrefs.edit().putString("saved_location", newLocation).apply()
                 showLocationSheet = false
             },
             onUseLiveLocation = {
-                // Request Permission then Fetch Live
-                locationPermissionLauncher.launch(
-                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                )
+                locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             },
             onDismiss = { showLocationSheet = false }
         )
     }
 
-    // Detail Sheets
     if (showDetailSheet != null) {
         ModalBottomSheet(onDismissRequest = { showDetailSheet = null }, containerColor = ThemeBg, contentColor = ThemeTextMain) {
-            // (Water and Walk detail screens call goes here exactly as before...)
+            // Sheet implementation remains same...
             Button(onClick = { showDetailSheet = null }, modifier = Modifier.fillMaxWidth().padding(24.dp)) { Text("Close") }
         }
     }
 }
 
-// ── Location Sheet with Search Logic ───────────────────────────
+// ── FREE Location Sheet (Local Filter + Custom Input) ───────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationSelectionSheet(
@@ -258,13 +251,18 @@ fun LocationSelectionSheet(
     onDismiss: () -> Unit
 ) {
     var searchLoc by remember { mutableStateOf("") }
-    val allLocations = listOf("Home - Jalgaon 425002", "Office - Pune 411038", "Mumbai, Andheri East", "Delhi, CP", "Bangalore, Indiranagar")
+
+    // Top popular cities for initial display
+    val popularLocations = listOf(
+        "Jalgaon, Maharashtra", "Pune, Maharashtra", "Mumbai, Maharashtra",
+        "Nashik, Maharashtra", "Nagpur, Maharashtra", "Delhi NCR", "Bangalore, Karnataka"
+    )
 
     // Auto-filter list based on search text
     val filteredLocations = if (searchLoc.isEmpty()) {
-        allLocations.take(3) // Show recent 3 if empty
+        popularLocations.take(4) // Show top 4 initially
     } else {
-        allLocations.filter { it.contains(searchLoc, ignoreCase = true) }
+        popularLocations.filter { it.contains(searchLoc, ignoreCase = true) }
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = ThemeBg, dragHandle = { BottomSheetDefaults.DragHandle() }) {
@@ -284,54 +282,62 @@ fun LocationSelectionSheet(
                 colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeCardSurface, unfocusedContainerColor = ThemeCardSurface, focusedBorderColor = BrandBlue, unfocusedBorderColor = Color.Transparent, focusedTextColor = ThemeTextMain)
             )
 
-            // ✅ If user typed something completely new, give them option to select it directly
-            if (searchLoc.isNotEmpty() && filteredLocations.isEmpty()) {
+            // ✅ User Input Dynamic Button (Jaisa type karega waisa button banega)
+            if (searchLoc.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
-                Surface(modifier = Modifier.fillMaxWidth().clickable { onLocationSelected(searchLoc) }, color = BrandBlue.copy(alpha = 0.1f), shape = RoundedCornerShape(12.dp)) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { onLocationSelected(searchLoc) },
+                    color = BrandBlue.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, BrandBlue)
+                ) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocationCity, contentDescription = null, tint = BrandBlue)
+                        Icon(Icons.Default.AddLocation, contentDescription = null, tint = BrandBlue)
                         Spacer(modifier = Modifier.width(16.dp))
-                        Text("Set location to '$searchLoc'", color = BrandBlue, fontWeight = FontWeight.Bold)
+                        Column {
+                            Text("Set location to:", color = BrandBlue.copy(alpha = 0.7f), fontSize = 12.sp)
+                            Text(searchLoc, color = BrandBlue, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Live Location Button
+            // Live Location Button (Using free GPS)
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable { onUseLiveLocation() },
-                color = BrandBlue.copy(alpha = 0.1f), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, BrandBlue.copy(alpha = 0.3f))
+                color = ThemeCardSurface, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, ThemeTextDim.copy(alpha = 0.2f))
             ) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.MyLocation, contentDescription = null, tint = BrandBlue)
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
-                        Text("Use Current Location", color = BrandBlue, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("Using GPS", color = BrandBlue.copy(alpha = 0.7f), fontSize = 12.sp)
+                        Text("Use Current Location", color = ThemeTextMain, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Using device GPS", color = ThemeTextDim, fontSize = 12.sp)
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Saved Addresses & Recent", fontWeight = FontWeight.Bold, color = ThemeTextDim, fontSize = 14.sp)
+            Text(if(searchLoc.isEmpty()) "Popular Cities" else "Suggestions", fontWeight = FontWeight.Bold, color = ThemeTextDim, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
+            // List of locations
             LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
                 items(filteredLocations) { loc ->
-                    val actualLocName = if(loc.contains("-")) loc.split(" - ").last() else loc
+                    val actualLocName = if(loc.contains(",")) loc.split(",").first().trim() else loc
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { onLocationSelected(actualLocName) }.padding(vertical = 14.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { onLocationSelected(loc) }.padding(vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val icon = if (loc.contains("Home")) Icons.Outlined.Home else if (loc.contains("Office")) Icons.Outlined.Business else Icons.Outlined.LocationOn
                         Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(ThemeCardSurface), contentAlignment = Alignment.Center) {
-                            Icon(icon, null, tint = ThemeTextDim, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Outlined.LocationCity, null, tint = ThemeTextDim, modifier = Modifier.size(20.dp))
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
-                            Text(loc, color = ThemeTextMain, fontSize = 16.sp, fontWeight = if (currentLocation == actualLocName) FontWeight.Bold else FontWeight.Normal)
-                            if (currentLocation == actualLocName) Text("Currently selected", color = BrandBlue, fontSize = 12.sp)
+                            Text(loc, color = ThemeTextMain, fontSize = 16.sp, fontWeight = if (currentLocation == loc) FontWeight.Bold else FontWeight.Normal)
+                            if (currentLocation == loc) Text("Currently selected", color = BrandBlue, fontSize = 12.sp)
                         }
                     }
                     HorizontalDivider(color = ThemeTextDim.copy(alpha = 0.1f))
@@ -341,7 +347,7 @@ fun LocationSelectionSheet(
     }
 }
 
-// (Remaining Components like HomeTopBar, SearchBar, Cards remain exactly identical)
+// (Remaining Components remain identical...)
 @Composable
 fun HomeTopBar(userName: String, location: String, onLoc: () -> Unit, onProf: () -> Unit, nav: NavController, query: String, onQ: (String) -> Unit, onClear: () -> Unit, onCart: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {

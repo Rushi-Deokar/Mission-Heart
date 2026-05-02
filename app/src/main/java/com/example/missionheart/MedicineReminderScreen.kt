@@ -1,13 +1,17 @@
 package com.example.missionheart
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
-import android.provider.Settings
-import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,311 +19,363 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.example.missionheart.ui.theme.*
-import java.util.Calendar
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.*
+import java.text.SimpleDateFormat
+import java.util.*
 
-// --- DATA MODEL ---
-data class MedicineReminder(
-    val id: Int,
-    val name: String,
-    val dosage: String,
-    val time: String, // format "HH:mm AM/PM"
-    val instruction: String,
-    val frequency: String = "Daily",
-    var isTaken: Boolean = false,
-    var stock: Int = 10
+// ── Data Model ──────────────────────────
+data class MedicineItem(
+    val id: String = "",
+    val name: String = "",
+    val time: String = "",
+    val hour: Int = 0,
+    val minute: Int = 0,
+    val totalStock: Int = 0,
+    val currentStock: Int = 0,
+    val history: Map<String, Boolean> = emptyMap()
 )
+
+// ── Background Alarm Scheduler ──────────
+fun scheduleMedicineAlarms(context: Context, medId: String, medName: String, hour: Int, minute: Int) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+    val intentBefore = Intent(context, MedicineAlarmReceiver::class.java).apply {
+        putExtra("MED_ID", medId)
+        putExtra("MED_NAME", medName)
+        putExtra("TYPE", "BEFORE")
+    }
+    val pendingBefore = PendingIntent.getBroadcast(context, medId.hashCode() + 1, intentBefore, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    val calBefore = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        add(Calendar.MINUTE, -10)
+        if (before(Calendar.getInstance())) add(Calendar.DAY_OF_YEAR, 1)
+    }
+
+    val intentAfter = Intent(context, MedicineAlarmReceiver::class.java).apply {
+        putExtra("MED_ID", medId)
+        putExtra("MED_NAME", medName)
+        putExtra("TYPE", "AFTER")
+    }
+    val pendingAfter = PendingIntent.getBroadcast(context, medId.hashCode() + 2, intentAfter, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    val calAfter = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        add(Calendar.MINUTE, 10)
+        if (before(Calendar.getInstance())) add(Calendar.DAY_OF_YEAR, 1)
+    }
+
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            alarmManager.set(AlarmManager.RTC_WAKEUP, calBefore.timeInMillis, pendingBefore)
+            alarmManager.set(AlarmManager.RTC_WAKEUP, calAfter.timeInMillis, pendingAfter)
+        } else {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, calBefore.timeInMillis, pendingBefore)
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, calAfter.timeInMillis, pendingAfter)
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun cancelMedicineAlarms(context: Context, medId: String) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val intent = Intent(context, MedicineAlarmReceiver::class.java)
+    val pendingBefore = PendingIntent.getBroadcast(context, medId.hashCode() + 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    val pendingAfter = PendingIntent.getBroadcast(context, medId.hashCode() + 2, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    alarmManager.cancel(pendingBefore)
+    alarmManager.cancel(pendingAfter)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MedicineReminderScreen(navController: NavController) {
     val context = LocalContext.current
-    
-    val medicines = remember {
-        mutableStateListOf(
-            MedicineReminder(1, "Paracetamol 650", "1 Tablet", "08:00 AM", "After Food", "Daily", stock = 15),
-            MedicineReminder(2, "Vitamin C", "1 Capsule", "01:00 PM", "With Food", "Daily", stock = 4),
-            MedicineReminder(3, "Metformin 500mg", "1 Tablet", "09:00 PM", "After Dinner", "Daily", stock = 8),
-            MedicineReminder(4, "Aspirin", "1 Tablet", "10:00 PM", "Before Sleep", "Daily", stock = 2)
-        )
+    val auth = remember { FirebaseAuth.getInstance() }
+    val userId = auth.currentUser?.uid ?: ""
+    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+
+    // ✅ Cloud Reference
+    val database = remember { FirebaseDatabase.getInstance().getReference("users/$userId/medicines") }
+    val medicines = remember { mutableStateListOf<MedicineItem>() }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // ✅ Sync Data with Cloud
+    LaunchedEffect(userId) {
+        if (userId.isNotEmpty()) {
+            database.addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    medicines.clear()
+                    for (medSnapshot in snapshot.children) {
+                        val med = medSnapshot.getValue(MedicineItem::class.java)
+                        med?.let { medicines.add(it) }
+                    }
+                    isLoading = false
+                }
+                override fun onCancelled(error: DatabaseError) {
+                    isLoading = false
+                }
+            })
+        }
     }
 
-    var showAddDialog by remember { mutableStateOf(false) }
+    // Permission Request for Android 13+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     Scaffold(
+        containerColor = AppBackground,
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text("Medicine Reminder", fontWeight = FontWeight.ExtraBold, color = TextPrimary, fontSize = 20.sp)
-                        Text("Never miss your dose", color = TextSecondary, fontSize = 12.sp)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
-                    }
-                },
+                title = { Text("My Medicines", fontWeight = FontWeight.Bold, color = TextPrimary) },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
-                containerColor = BrandTeal,
-                contentColor = Color.White,
-                modifier = Modifier.shadow(8.dp, CircleShape)
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = "Add Medicine", modifier = Modifier.size(28.dp))
-            }
-        },
-        containerColor = AppBackground
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(paddingValues),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item { MedicineStatsHeader(medicines) }
-            item {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Today's Schedule", style = MaterialTheme.typography.titleLarge, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                    Surface(shape = RoundedCornerShape(8.dp), color = BrandTeal.copy(alpha = 0.15f)) {
-                        Text("${medicines.size} medicines", modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = BrandTeal)
-                    }
-                }
-            }
-            items(medicines) { med ->
-                MedicineCardItem(
-                    medicine = med,
-                    onTakenClick = {
-                        val index = medicines.indexOf(med)
-                        if (index != -1) {
-                            val newStatus = !med.isTaken
-                            val newStock = if (newStatus) med.stock - 1 else med.stock + 1
-                            medicines[index] = med.copy(isTaken = newStatus, stock = newStock)
-                        }
-                    },
-                    onDeleteClick = {
-                        medicines.remove(med)
-                        cancelMedicineAlarm(context, med)
-                    }
-                )
-            }
-            if (medicines.isEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        Text("No medicines added yet.", color = TextSecondary)
-                    }
-                }
-            }
-            item { Spacer(modifier = Modifier.height(80.dp)) }
-        }
-
-        if (showAddDialog) {
-            AddMedicineDialogContent(
-                onDismiss = { showAddDialog = false },
-                onAdd = { name, dose, time, instruction ->
-                    val newMed = MedicineReminder(medicines.size + 1, name, dose, time, instruction, "Daily", stock = 10)
-                    medicines.add(newMed)
-                    scheduleMedicineAlarm(context, newMed)
-                    showAddDialog = false
-                    Toast.makeText(context, "Reminder set for $time", Toast.LENGTH_SHORT).show()
-                }
+                containerColor = BrandBlue, contentColor = Color.White,
+                icon = { Icon(Icons.Default.Add, null) }, text = { Text("Add Med", fontWeight = FontWeight.Bold) }
             )
         }
-    }
-}
-
-private fun scheduleMedicineAlarm(context: Context, medicine: MedicineReminder) {
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    
-    // Exact alarm permission handling for API 31+
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if (!alarmManager.canScheduleExactAlarms()) {
-            Toast.makeText(context, "Please allow exact alarms in settings", Toast.LENGTH_LONG).show()
-            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-            context.startActivity(intent)
-            return
-        }
-    }
-
-    val intent = Intent(context, MedicineAlarmReceiver::class.java).apply {
-        putExtra("MEDICINE_NAME", medicine.name)
-        putExtra("DOSAGE", medicine.dosage)
-        putExtra("MEDICINE_ID", medicine.id)
-    }
-    
-    val pendingIntent = PendingIntent.getBroadcast(
-        context, medicine.id, intent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    try {
-        val parts = medicine.time.split(" ", ":")
-        var hour = parts[0].toInt()
-        val minute = parts[1].toInt()
-        val amPm = parts[2]
-
-        if (amPm.equals("PM", ignoreCase = true) && hour < 12) hour += 12
-        if (amPm.equals("AM", ignoreCase = true) && hour == 12) hour = 0
-
-        val calendar = Calendar.getInstance().apply {
-            timeInMillis = System.currentTimeMillis()
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, 0)
-            if (before(Calendar.getInstance())) {
-                add(Calendar.DAY_OF_YEAR, 1)
-            }
-        }
-
-        alarmManager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            pendingIntent
-        )
-    } catch (e: Exception) {
-        Log.e("MedicineReminder", "Failed to set alarm", e)
-    }
-}
-
-private fun cancelMedicineAlarm(context: Context, medicine: MedicineReminder) {
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    val intent = Intent(context, MedicineAlarmReceiver::class.java)
-    val pendingIntent = PendingIntent.getBroadcast(
-        context, medicine.id, intent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-    alarmManager.cancel(pendingIntent)
-}
-
-@Composable
-fun MedicineStatsHeader(medicines: List<MedicineReminder>) {
-    val total = medicines.size
-    val taken = medicines.count { it.isTaken }
-    val progressValue = if (total > 0) taken.toFloat() / total else 0f
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceWhite),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(progress = 1f, modifier = Modifier.size(80.dp), color = InputFieldBg, strokeWidth = 8.dp)
-                CircularProgressIndicator(progress = progressValue, modifier = Modifier.size(80.dp), color = BrandTeal, strokeWidth = 8.dp)
-                Text("${(progressValue * 100).toInt()}%", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Daily Progress", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Text("$taken of $total doses taken", fontSize = 14.sp, color = TextSecondary)
-                val lowStockCount = medicines.count { it.stock <= 5 }
-                if (lowStockCount > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Warning, null, tint = ActionOrange, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("$lowStockCount low on stock", fontSize = 12.sp, color = ActionOrange, fontWeight = FontWeight.Bold)
-                    }
+    ) { paddingValues ->
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = BrandBlue) }
+        } else if (medicines.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.CloudOff, null, tint = TextSecondary.copy(alpha = 0.5f), modifier = Modifier.size(80.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("No medicines found in Cloud.", color = TextSecondary)
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun MedicineCardItem(medicine: MedicineReminder, onTakenClick: () -> Unit, onDeleteClick: () -> Unit) {
-    val bgColor = if (medicine.isTaken) SurfaceWhite.copy(alpha = 0.6f) else SurfaceWhite
-    val iconTint = if (medicine.isTaken) SuccessGreen else BrandTeal
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = bgColor), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(iconTint.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Medication, null, tint = iconTint, modifier = Modifier.size(24.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = medicine.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (medicine.isTaken) TextSecondary else TextPrimary, textDecoration = if (medicine.isTaken) TextDecoration.LineThrough else TextDecoration.None)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Schedule, null, tint = TextSecondary, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("${medicine.time} • ${medicine.dosage}", fontSize = 13.sp, color = TextSecondary)
-                }
-                if (medicine.stock <= 5) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(if (medicine.stock <= 0) "Out of Stock!" else "Low Stock: ${medicine.stock} left", fontSize = 11.sp, color = ActionOrange, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            
-            IconButton(onClick = onDeleteClick) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = ErrorRed)
-            }
-            
-            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(if (medicine.isTaken) SuccessGreen else InputFieldBg).clickable { onTakenClick() }, contentAlignment = Alignment.Center) {
-                if (medicine.isTaken) Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(24.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun AddMedicineDialogContent(onDismiss: () -> Unit, onAdd: (String, String, String, String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var dose by remember { mutableStateOf("") }
-    var hour by remember { mutableStateOf("08") }
-    var minute by remember { mutableStateOf("00") }
-    var amPm by remember { mutableStateOf("AM") }
-    var instruction by remember { mutableStateOf("After Food") }
-    var showInstructionMenu by remember { mutableStateOf(false) }
-    val instructions = listOf("Before Food", "After Food", "With Food", "Empty Stomach", "Before Sleep")
-
-    AlertDialog(
-        containerColor = SurfaceWhite,
-        onDismissRequest = onDismiss,
-        title = { Text("Add Medicine Reminder", fontWeight = FontWeight.Bold, color = TextPrimary) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Medicine Name") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = dose, onValueChange = { dose = it }, label = { Text("Dose (e.g. 1 Tablet)") }, modifier = Modifier.fillMaxWidth())
-                
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(value = hour, onValueChange = { if(it.length <= 2) hour = it }, label = { Text("HH") }, modifier = Modifier.width(64.dp))
-                    Text(":", fontWeight = FontWeight.Bold, color = TextPrimary)
-                    OutlinedTextField(value = minute, onValueChange = { if(it.length <= 2) minute = it }, label = { Text("MM") }, modifier = Modifier.width(64.dp))
-                    Button(onClick = { amPm = if(amPm == "AM") "PM" else "AM" }, modifier = Modifier.height(56.dp)) { Text(amPm) }
-                }
-
-                Box {
-                    OutlinedTextField(value = instruction, onValueChange = {}, readOnly = true, label = { Text("Instruction") }, trailingIcon = { IconButton(onClick = { showInstructionMenu = true }) { Icon(Icons.Default.ArrowDropDown, null) } }, modifier = Modifier.fillMaxWidth().clickable { showInstructionMenu = true })
-                    DropdownMenu(expanded = showInstructionMenu, onDismissRequest = { showInstructionMenu = false }) {
-                        instructions.forEach { label ->
-                            DropdownMenuItem(text = { Text(label) }, onClick = { instruction = label; showInstructionMenu = false })
+        } else {
+            LazyColumn(Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                item { Spacer(Modifier.height(8.dp)) }
+                items(medicines, key = { it.id }) { med ->
+                    MedicineCard(
+                        medicine = med, todayStr = todayStr,
+                        onTake = {
+                            val updated = med.copy(
+                                currentStock = med.currentStock - 1,
+                                history = med.history.toMutableMap().apply { put(todayStr, true) }
+                            )
+                            database.child(med.id).setValue(updated)
+                        },
+                        onSkip = {
+                            val updated = med.copy(history = med.history.toMutableMap().apply { put(todayStr, false) })
+                            database.child(med.id).setValue(updated)
+                        },
+                        onDelete = {
+                            cancelMedicineAlarms(context, med.id)
+                            database.child(med.id).removeValue()
                         }
+                    )
+                }
+                item { Spacer(Modifier.height(80.dp)) }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        AddMedicineSheet(
+            context = context,
+            onDismiss = { showAddDialog = false },
+            onSave = { name, time, hour, min, stock ->
+                val newId = database.push().key ?: UUID.randomUUID().toString()
+                val newMed = MedicineItem(newId, name, time, hour, min, stock, stock, emptyMap())
+                database.child(newId).setValue(newMed)
+                scheduleMedicineAlarms(context, newId, name, hour, min)
+                showAddDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun MedicineCard(medicine: MedicineItem, todayStr: String, onTake: () -> Unit, onSkip: () -> Unit, onDelete: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = SurfaceWhite), elevation = CardDefaults.cardElevation(2.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).clip(CircleShape).background(BrandBlue.copy(0.1f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Medication, null, tint = BrandBlue) }
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(medicine.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Schedule, null, tint = TextSecondary, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(medicine.time, color = TextSecondary, fontSize = 14.sp)
+                    }
+                }
+                IconButton(onClick = onDelete) { Icon(Icons.Default.DeleteOutline, null, tint = ErrorRed.copy(0.7f)) }
+            }
+            Spacer(Modifier.height(16.dp))
+
+            val stockPercentage = if (medicine.totalStock > 0) medicine.currentStock.toFloat() / medicine.totalStock else 0f
+            val stockColor = when {
+                stockPercentage > 0.5f -> SuccessGreen
+                stockPercentage > 0.2f -> ActionOrange
+                else -> ErrorRed
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Stock Left", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                Text("${medicine.currentStock} / ${medicine.totalStock}", fontSize = 12.sp, color = stockColor, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(progress = stockPercentage, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)), color = stockColor, trackColor = stockColor.copy(alpha = 0.15f), strokeCap = StrokeCap.Round)
+            Spacer(Modifier.height(20.dp))
+            Text("Last 7 Days Compliance", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                getLast7Days().forEach { date ->
+                    val status = medicine.history[date]
+                    val dotColor = when (status) { true -> SuccessGreen false -> ErrorRed null -> TextSecondary.copy(alpha = 0.2f) }
+                    val dayName = SimpleDateFormat("EEE", Locale.getDefault()).format(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(date)!!)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(24.dp).clip(CircleShape).background(dotColor))
+                        Spacer(Modifier.height(4.dp))
+                        Text(dayName.take(1), fontSize = 10.sp, color = TextSecondary)
                     }
                 }
             }
+            Spacer(Modifier.height(20.dp))
+            val todayStatus = medicine.history[todayStr]
+            if (todayStatus == null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = onSkip, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed), border = BorderStroke(1.dp, ErrorRed)) { Text("Skip") }
+                    Button(onClick = onTake, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen), enabled = medicine.currentStock > 0) { Text(if (medicine.currentStock > 0) "Mark Taken" else "Out of Stock") }
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (todayStatus) SuccessGreen.copy(0.1f) else ErrorRed.copy(0.1f)).padding(12.dp), contentAlignment = Alignment.Center) {
+                    Text(if (todayStatus) "✅ Taken Today" else "❌ Missed Today", color = if (todayStatus) SuccessGreen else ErrorRed, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddMedicineSheet(context: Context, onDismiss: () -> Unit, onSave: (String, String, Int, Int, Int) -> Unit) {
+    var medName by remember { mutableStateOf("") }
+    var medStock by remember { mutableStateOf("") }
+
+    var selectedTimeStr by remember { mutableStateOf("Select Time") }
+    var selectedHour by remember { mutableIntStateOf(8) }
+    var selectedMinute by remember { mutableIntStateOf(0) }
+
+    val timePickerDialog = TimePickerDialog(
+        context,
+        { _, hourOfDay, minute ->
+            selectedHour = hourOfDay
+            selectedMinute = minute
+            val amPm = if (hourOfDay >= 12) "PM" else "AM"
+            val displayHour = if (hourOfDay == 0) 12 else if (hourOfDay > 12) hourOfDay - 12 else hourOfDay
+            selectedTimeStr = String.format(Locale.getDefault(), "%02d:%02d %s", displayHour, minute, amPm)
         },
-        confirmButton = { Button(onClick = { onAdd(name, dose, "${hour.padStart(2, '0')}:${minute.padStart(2, '0')} $amPm", instruction) }, enabled = name.isNotBlank() && dose.isNotEmpty()) { Text("Save Reminder") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        selectedHour, selectedMinute, false
     )
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = AppBackground) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+            Text("Add New Medicine", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Spacer(Modifier.height(24.dp))
+
+            OutlinedTextField(
+                value = medName, onValueChange = { medName = it },
+                label = { Text("Medicine Name") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+            Spacer(Modifier.height(16.dp))
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(modifier = Modifier.weight(1f).clickable { timePickerDialog.show() }) {
+                    OutlinedTextField(
+                        value = selectedTimeStr, onValueChange = {},
+                        label = { Text("Time") },
+                        enabled = false,
+                        trailingIcon = { Icon(Icons.Default.AccessTime, null, tint = BrandBlue) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = TextPrimary,
+                            disabledBorderColor = TextSecondary.copy(alpha = 0.5f),
+                            disabledLabelColor = TextSecondary
+                        )
+                    )
+                }
+
+                OutlinedTextField(
+                    value = medStock, onValueChange = { if (it.all { char -> char.isDigit() }) medStock = it },
+                    label = { Text("Total Stock") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
+            Button(
+                onClick = {
+                    if (medName.isNotBlank() && selectedTimeStr != "Select Time" && medStock.isNotBlank()) {
+                        onSave(medName.trim(), selectedTimeStr, selectedHour, selectedMinute, medStock.toInt())
+                    } else {
+                        Toast.makeText(context, "Please fill all details and select time", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+            ) {
+                Text("Save Medicine", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+fun getLast7Days(): List<String> {
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val dates = mutableListOf<String>()
+    for (i in 0..6) {
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.DAY_OF_YEAR, -i)
+        dates.add(dateFormat.format(cal.time))
+    }
+    return dates.reversed()
 }
