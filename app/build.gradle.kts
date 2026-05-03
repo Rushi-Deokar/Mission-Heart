@@ -5,8 +5,10 @@ import java.io.FileInputStream
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose) // ✅ Naya Compose compiler plugin add kiya (Very Important)
+    alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
+    // ✅ KAPT hata kar KSP lagaya hai
+    id("com.google.devtools.ksp")
 }
 
 val localProperties = Properties()
@@ -88,6 +90,17 @@ dependencies {
     // AI Symptom Checker Dependency
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     implementation(libs.androidx.compose.foundation)
+
+    // Room Database
+    val roomVersion = "2.6.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    // ✅ Yahan bhi kapt ki jagah ksp use kiya hai
+    ksp("androidx.room:room-compiler:$roomVersion")
+
+    // WorkManager for Background Sync
+    val workVersion = "2.9.0"
+    implementation("androidx.work:work-runtime-ktx:$workVersion")
 
     // Force consistent gRPC versions to prevent Serialization/MissingField errors
     configurations.all {
