@@ -4,9 +4,6 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.PrimaryKey
 
-/**
- * Offline entity for Chat Sessions
- */
 @Entity(tableName = "chat_sessions")
 data class ChatSessionEntity(
     @PrimaryKey val id: String,
@@ -14,9 +11,6 @@ data class ChatSessionEntity(
     val timestamp: Long
 )
 
-/**
- * Offline entity for Individual Chat Messages
- */
 @Entity(
     tableName = "chat_messages",
     foreignKeys = [

@@ -18,9 +18,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-/**
- * Sprint 1: Professional AI Chat ViewModel with Streaming & Multi-session logic
- */
 class AIChatViewModel : ViewModel() {
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()

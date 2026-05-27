@@ -21,8 +21,6 @@ class AuthManager(context: Context) {
 
     fun logout() {
         auth.signOut()
-        // Logout par onboarding reset nahi karni chahiye, 
-        // lekin agar aap chahte hain naya user phir se onboarding dekhe toh yahan reset kar sakte hain.
     }
 
     fun getUserName(): String {
